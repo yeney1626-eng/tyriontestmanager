@@ -423,6 +423,7 @@ tr.locked-row td{opacity:.75}
       <span class="setup-hint">Default: 17s. Adjust to your team's target.</span>
     </div>
     <button class="setup-btn" onclick="finishSetup()">Start Tracking →</button>
+    <button class="setup-btn" onclick="openManagerFromSetup()" style="margin-top:8px;background:linear-gradient(135deg,#7C3AED,#A855F7);font-size:13px;padding:10px 20px">👔 Manager View →</button>
   </div>
 </div>
 
@@ -2621,7 +2622,36 @@ function clearAllData(){
   location.reload();
 }
 
-// ══ MANAGER VIEW ══
+// ══ MANAGER FROM SETUP ══
+// Lets a manager bypass the regular user setup and go straight to manager view.
+// Shows a password prompt inline on the setup screen.
+function openManagerFromSetup(){
+  var pwd = prompt('Enter manager password:');
+  if(!pwd) return;
+  fetch(SHEET_BACKUP_URL,{
+    method:'POST', headers:{'Content-Type':'text/plain;charset=utf-8'},
+    body:JSON.stringify({action:'managerAuth', password:pwd})
+  }).then(function(r){ return r.json(); }).then(function(resp){
+    if(resp.status!=='ok') throw new Error(resp.message||'Incorrect password.');
+    MGR_UNLOCKED=true;
+    // Boot the app shell without a user name — manager-only mode
+    if(!S.name) S.name='__manager__';
+    document.getElementById('setup-screen').style.display='none';
+    document.getElementById('app').classList.add('visible');
+    appInit();
+    // Show manager tab, hide log entry
+    document.getElementById('nav-manager').style.display='';
+    document.getElementById('nav-log').style.display='none';
+    // Reflect in settings panel
+    document.getElementById('mgr-login-form').style.display='none';
+    document.getElementById('mgr-logout-form').style.display='flex';
+    document.getElementById('mgr-access-status').textContent='✓ Manager access unlocked.';
+    document.getElementById('mgr-access-status').style.color='var(--accent2)';
+    showTab('manager');
+  }).catch(function(err){
+    alert('Manager login failed: '+err.message);
+  });
+}
 var MGR_UNLOCKED = false;
 var MGR_TEAM_DATA = null;
 
@@ -2706,10 +2736,10 @@ function renderManagerCards(users){
       '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">'+
         mgrStatBox('WB JC',u.wbJC,'var(--text)')+
         mgrStatBox('WB AHT',ahtDisplay,ahtColor)+
-        mgrStatBox('AHT Target',u.target+'s','var(--text2)')+
-        mgrStatBox('JC Target',u.targetJC,'var(--text2)')+
+        mgrStatBox('AHT Target',u.ahtTargetS+'s','var(--text2)')+
+        mgrStatBox('Today JC',u.todayJC||'—','var(--text)')+
       '</div>'+
-      '<div style="margin-top:10px;font-size:11px;color:var(--text2);text-align:right">Tap to see this week\'s entries →</div>';
+      '<div style="margin-top:10px;font-size:11px;color:var(--text2);text-align:right">Tap to see all entries →</div>';
     container.appendChild(card);
   });
 }
@@ -2725,107 +2755,64 @@ function drillIntoUser(u){
   document.getElementById('mgr-summary-view').style.display='none';
   document.getElementById('mgr-drill-view').style.display='';
   document.getElementById('mgr-back-btn').style.display='';
-  document.getElementById('mgr-drill-label').textContent=u.name+' · '+escHtml(u.wb||'');
+  document.getElementById('mgr-drill-label').textContent=u.name;
 
-  // Use current WB entries only (already filtered in backend)
-  var entries=(u.wbEntries||u.entries||[]).slice().sort(function(a,b){ return a.date.localeCompare(b.date); });
+  // All entries across all time, newest first — same as the spreadsheet
+  var entries=(u.entries||[]).slice().sort(function(a,b){ return b.date.localeCompare(a.date); });
 
-  var html='<div style="display:flex;flex-direction:column;gap:10px">';
+  var html='<div style="overflow-x:auto;-webkit-overflow-scrolling:touch">';
+  html+='<table style="width:100%;border-collapse:collapse;font-size:12px;min-width:700px">';
+  html+='<thead><tr style="background:var(--bg-el);position:sticky;top:0;z-index:2">';
+  ['Date','WB','1st Brk JC','Lunch JC','2nd Brk JC','EOS JC','Total JC','Prod (s)','Avg AHT (s)','Target','Status','Locked'].forEach(function(h){
+    html+='<th style="padding:7px 10px;text-align:left;font-size:10px;font-weight:700;color:var(--text2);white-space:nowrap;border-bottom:2px solid var(--border)">'+escHtml(h)+'</th>';
+  });
+  html+='</tr></thead><tbody>';
 
-  entries.forEach(function(e){
+  entries.forEach(function(e,i){
+    var bg=i%2===0?'var(--bg-card)':'var(--bg-el)';
     var lt=e.leaveType||'none';
     var isPlFull=lt==='pl-full'||/pl.*full/i.test(e.status||'');
     var isUlFull=lt==='ul-full'||/ul.*full/i.test(e.status||'');
-
-    // PL Full — blue leave card
-    if(isPlFull){
-      html+=
-        '<div style="background:rgba(14,165,233,.1);border:1px solid rgba(14,165,233,.3);border-radius:10px;padding:12px 16px;display:flex;align-items:center;gap:12px">'+
-          '<span style="font-size:22px">🏖️</span>'+
-          '<div>'+
-            '<div style="font-size:13px;font-weight:800;color:#38BDF8">PL Full</div>'+
-            '<div style="font-size:11px;color:var(--text2)">'+escHtml(e.date)+' · Planned Leave – Full Day</div>'+
-          '</div>'+
-        '</div>';
-      return;
-    }
-
-    // UL Full — orange leave card
-    if(isUlFull){
-      html+=
-        '<div style="background:rgba(245,124,0,.1);border:1px solid rgba(245,124,0,.3);border-radius:10px;padding:12px 16px;display:flex;align-items:center;gap:12px">'+
-          '<span style="font-size:22px">😈</span>'+
-          '<div>'+
-            '<div style="font-size:13px;font-weight:800;color:#F57C00">UL Full</div>'+
-            '<div style="font-size:11px;color:var(--text2)">'+escHtml(e.date)+' · Unplanned Leave – Full Day</div>'+
-          '</div>'+
-        '</div>';
-      return;
-    }
-
-    // Rest Day — subtle card
-    if(e.isRestDay){
-      html+=
-        '<div style="background:var(--bg-el);border:1px solid var(--border);border-radius:10px;padding:12px 16px;display:flex;align-items:center;gap:12px">'+
-          '<span style="font-size:22px">😴</span>'+
-          '<div>'+
-            '<div style="font-size:13px;font-weight:700;color:var(--text2)">Rest Day</div>'+
-            '<div style="font-size:11px;color:var(--text2)">'+escHtml(e.date)+'</div>'+
-          '</div>'+
-        '</div>';
-      return;
-    }
-
-    // Work day — full entry card
     var isMet=/^met$/i.test((e.status||'').trim());
-    var isNotMet=/not met/i.test(e.status||'');
-    var statusColor=isMet?'var(--accent2)':isNotMet?'var(--red)':'var(--text2)';
-    var badgeBg=isMet?'rgba(63,185,80,.15)':'rgba(248,81,73,.15)';
+    var statusColor=isMet?'var(--accent2)':(e.isRestDay||isPlFull||isUlFull)?'var(--text2)':'var(--red)';
+
     var IVS_D=['1st Break','Lunch','2nd Break','EOS'];
     var jcVals=IVS_D.map(function(iv){ return (e.iv&&e.iv[iv]&&e.iv[iv].jc)||0; });
 
-    html+=
-      '<div style="background:var(--bg-card);border:1px solid var(--border);border-radius:10px;padding:14px 16px">'+
-        '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">'+
-          '<div style="font-size:13px;font-weight:800;color:var(--text)">'+escHtml(e.date)+(e.locked?' 🔒':'')+'</div>'+
-          '<div style="font-size:11px;font-weight:700;padding:2px 8px;border-radius:10px;background:'+badgeBg+';color:'+statusColor+'">'+escHtml(e.status||'—')+'</div>'+
-        '</div>'+
-        // JC per interval grid
-        '<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin-bottom:10px">'+
-          IVS_D.map(function(iv,i){
-            var label=['1st Brk','Lunch','2nd Brk','EOS'][i];
-            return '<div style="background:var(--bg-el);border-radius:7px;padding:6px 8px;text-align:center">'+
-              '<div style="font-size:9px;color:var(--text2);font-weight:700;text-transform:uppercase">'+label+'</div>'+
-              '<div style="font-size:14px;font-weight:800;color:var(--text)">'+jcVals[i]+'</div>'+
-            '</div>';
-          }).join('')+
-        '</div>'+
-        // Summary row
-        '<div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:6px">'+
-          '<div style="background:var(--bg-el);border-radius:7px;padding:6px 8px;text-align:center">'+
-            '<div style="font-size:9px;color:var(--text2);font-weight:700;text-transform:uppercase">Total JC</div>'+
-            '<div style="font-size:13px;font-weight:800;color:var(--text)">'+escHtml(String(e.totalJC||0))+'</div>'+
-          '</div>'+
-          '<div style="background:var(--bg-el);border-radius:7px;padding:6px 8px;text-align:center">'+
-            '<div style="font-size:9px;color:var(--text2);font-weight:700;text-transform:uppercase">Avg AHT</div>'+
-            '<div style="font-size:13px;font-weight:800;color:'+statusColor+'">'+escHtml(String(e.avgAHT||'—'))+'s</div>'+
-          '</div>'+
-          '<div style="background:var(--bg-el);border-radius:7px;padding:6px 8px;text-align:center">'+
-            '<div style="font-size:9px;color:var(--text2);font-weight:700;text-transform:uppercase">Target AHT</div>'+
-            '<div style="font-size:13px;font-weight:800;color:var(--text2)">'+escHtml(String(e.target||'—'))+'s</div>'+
-          '</div>'+
-          '<div style="background:var(--bg-el);border-radius:7px;padding:6px 8px;text-align:center">'+
-            '<div style="font-size:9px;color:var(--text2);font-weight:700;text-transform:uppercase">Target JC</div>'+
-            '<div style="font-size:13px;font-weight:800;color:var(--text2)">'+Math.round(27000/(e.target||17))+'</div>'+
-          '</div>'+
-        '</div>'+
-      '</div>';
+    // Status display — show leave type in status cell
+    var statusDisplay=e.status||'—';
+    if(isPlFull) statusDisplay='🏖️ PL Full';
+    else if(isUlFull) statusDisplay='😈 UL Full';
+    else if(e.isRestDay) statusDisplay='Rest Day';
+
+    html+='<tr style="background:'+bg+'">';
+    html+='<td style="padding:6px 10px;color:var(--text);white-space:nowrap;font-weight:600">'+escHtml(e.date)+'</td>';
+    html+='<td style="padding:6px 10px;color:var(--text2);font-size:11px;white-space:nowrap">'+escHtml(e.wb||'')+'</td>';
+
+    if(e.isRestDay||isPlFull||isUlFull){
+      // Leave/rest days — span JC columns
+      html+='<td colspan="6" style="padding:6px 10px;color:var(--text2);font-style:italic;font-size:11px">'+escHtml(statusDisplay)+'</td>';
+      html+='<td colspan="2" style="padding:6px 10px;color:var(--text2)">—</td>';
+      html+='<td style="padding:6px 10px;color:var(--text2)">—</td>';
+    } else {
+      jcVals.forEach(function(jc){
+        html+='<td style="padding:6px 10px;color:var(--text);text-align:right">'+jc+'</td>';
+      });
+      html+='<td style="padding:6px 10px;color:var(--text);text-align:right;font-weight:700">'+escHtml(String(e.totalJC||0))+'</td>';
+      html+='<td style="padding:6px 10px;color:var(--text2);text-align:right">'+escHtml(String(e.prodS||'—'))+'</td>';
+      html+='<td style="padding:6px 10px;text-align:right;font-weight:700;color:'+statusColor+'">'+escHtml(String(e.avgAHT||'—'))+'s</td>';
+      html+='<td style="padding:6px 10px;text-align:right;color:var(--text2)">'+escHtml(String(e.targetJCRaw||'—'))+'</td>';
+    }
+
+    html+='<td style="padding:6px 10px;color:'+statusColor+';font-weight:700;white-space:nowrap">'+escHtml(e.isRestDay?'Rest Day':statusDisplay)+'</td>';
+    html+='<td style="padding:6px 10px;text-align:center">'+escHtml(e.locked?'🔒':'')+'</td>';
+    html+='</tr>';
   });
 
   if(!entries.length){
-    html+='<div style="color:var(--text2);font-size:13px;padding:20px 0">No entries found for this week.</div>';
+    html+='<tr><td colspan="12" style="padding:20px;color:var(--text2);text-align:center;font-style:italic">No entries found.</td></tr>';
   }
-  html+='</div>';
+  html+='</tbody></table></div>';
   document.getElementById('mgr-drill-entries').innerHTML=html;
 }
 
