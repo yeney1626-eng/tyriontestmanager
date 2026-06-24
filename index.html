@@ -2642,6 +2642,7 @@ function submitManagerLogin(){
     document.getElementById('mgr-access-status').textContent='✓ Manager access unlocked.';
     document.getElementById('mgr-access-status').style.color='var(--accent2)';
     document.getElementById('nav-manager').style.display='';
+    document.getElementById('nav-log').style.display='none';
   }).catch(function(err){ errEl.textContent=err.message; });
 }
 
@@ -2652,6 +2653,7 @@ function logoutManager(){
   document.getElementById('mgr-access-status').textContent='Enter the manager password to unlock the Manager view.';
   document.getElementById('mgr-access-status').style.color='';
   document.getElementById('nav-manager').style.display='none';
+  document.getElementById('nav-log').style.display='';
   document.getElementById('mgr-password-input').value='';
   document.getElementById('mgr-login-err').textContent='';
   showTab('settings');
@@ -2696,18 +2698,18 @@ function renderManagerCards(users){
     card.onmouseleave=function(){ this.style.borderColor='var(--border)'; };
     card.onclick=function(){ drillIntoUser(u); };
     card.innerHTML=
-      '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">'+
+      '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">'+
         '<div style="font-size:14px;font-weight:800;color:var(--text)">'+escHtml(u.name)+'</div>'+
         '<div style="font-size:11px;font-weight:700;padding:2px 8px;border-radius:10px;background:'+badgeBg+';color:'+badgeColor+'">'+escHtml(u.ifMet)+'</div>'+
       '</div>'+
-      '<div style="font-size:11px;color:var(--text2);margin-bottom:8px">'+escHtml(u.wb||'—')+'</div>'+
+      '<div style="font-size:11px;color:var(--text2);margin-bottom:10px">'+escHtml(u.wb||'—')+'</div>'+
       '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">'+
         mgrStatBox('WB JC',u.wbJC,'var(--text)')+
         mgrStatBox('WB AHT',ahtDisplay,ahtColor)+
-        mgrStatBox('Target',u.target+'s','var(--text)')+
-        mgrStatBox('Days',u.lockedDays+'/'+u.totalDays,'var(--text)')+
+        mgrStatBox('AHT Target',u.target+'s','var(--text2)')+
+        mgrStatBox('JC Target',u.targetJC,'var(--text2)')+
       '</div>'+
-      '<div style="margin-top:10px;font-size:11px;color:var(--text2);text-align:right">Tap to see full entries →</div>';
+      '<div style="margin-top:10px;font-size:11px;color:var(--text2);text-align:right">Tap to see this week\'s entries →</div>';
     container.appendChild(card);
   });
 }
@@ -2723,39 +2725,107 @@ function drillIntoUser(u){
   document.getElementById('mgr-summary-view').style.display='none';
   document.getElementById('mgr-drill-view').style.display='';
   document.getElementById('mgr-back-btn').style.display='';
-  document.getElementById('mgr-drill-label').textContent=u.name;
-  var entries=(u.entries||[]).slice().sort(function(a,b){ return b.date.localeCompare(a.date); });
-  var html='<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:12px">';
-  html+='<thead><tr style="background:var(--bg-el)">';
-  ['Date','WB','1st Brk','Lunch','2nd Brk','EOS','Total JC','Prod(s)','Avg AHT','Target','Status','Locked'].forEach(function(h){
-    html+='<th style="padding:7px 10px;text-align:left;font-size:10px;font-weight:700;color:var(--text2);white-space:nowrap;border-bottom:1px solid var(--border)">'+escHtml(h)+'</th>';
-  });
-  html+='</tr></thead><tbody>';
-  entries.forEach(function(e,i){
-    var bg=i%2===0?'var(--bg-card)':'var(--bg-el)';
-    var isMet=/^met$/i.test((e.status||'').trim());
-    var statusColor=isMet?'var(--accent2)':e.isRestDay?'var(--text2)':'var(--red)';
-    if(e.isRestDay){
-      html+='<tr style="background:'+bg+'"><td style="padding:6px 10px;color:var(--text)">'+escHtml(e.date)+'</td>'+
-        '<td style="padding:6px 10px;color:var(--text2);font-size:11px">'+escHtml(e.wb||'')+'</td>'+
-        '<td colspan="8" style="padding:6px 10px;color:var(--text2);font-style:italic">Rest Day</td>'+
-        '<td style="padding:6px 10px">'+escHtml(e.locked?'🔒':'')+'</td></tr>';
+  document.getElementById('mgr-drill-label').textContent=u.name+' · '+escHtml(u.wb||'');
+
+  // Use current WB entries only (already filtered in backend)
+  var entries=(u.wbEntries||u.entries||[]).slice().sort(function(a,b){ return a.date.localeCompare(b.date); });
+
+  var html='<div style="display:flex;flex-direction:column;gap:10px">';
+
+  entries.forEach(function(e){
+    var lt=e.leaveType||'none';
+    var isPlFull=lt==='pl-full'||/pl.*full/i.test(e.status||'');
+    var isUlFull=lt==='ul-full'||/ul.*full/i.test(e.status||'');
+
+    // PL Full — blue leave card
+    if(isPlFull){
+      html+=
+        '<div style="background:rgba(14,165,233,.1);border:1px solid rgba(14,165,233,.3);border-radius:10px;padding:12px 16px;display:flex;align-items:center;gap:12px">'+
+          '<span style="font-size:22px">🏖️</span>'+
+          '<div>'+
+            '<div style="font-size:13px;font-weight:800;color:#38BDF8">PL Full</div>'+
+            '<div style="font-size:11px;color:var(--text2)">'+escHtml(e.date)+' · Planned Leave – Full Day</div>'+
+          '</div>'+
+        '</div>';
       return;
     }
+
+    // UL Full — orange leave card
+    if(isUlFull){
+      html+=
+        '<div style="background:rgba(245,124,0,.1);border:1px solid rgba(245,124,0,.3);border-radius:10px;padding:12px 16px;display:flex;align-items:center;gap:12px">'+
+          '<span style="font-size:22px">😈</span>'+
+          '<div>'+
+            '<div style="font-size:13px;font-weight:800;color:#F57C00">UL Full</div>'+
+            '<div style="font-size:11px;color:var(--text2)">'+escHtml(e.date)+' · Unplanned Leave – Full Day</div>'+
+          '</div>'+
+        '</div>';
+      return;
+    }
+
+    // Rest Day — subtle card
+    if(e.isRestDay){
+      html+=
+        '<div style="background:var(--bg-el);border:1px solid var(--border);border-radius:10px;padding:12px 16px;display:flex;align-items:center;gap:12px">'+
+          '<span style="font-size:22px">😴</span>'+
+          '<div>'+
+            '<div style="font-size:13px;font-weight:700;color:var(--text2)">Rest Day</div>'+
+            '<div style="font-size:11px;color:var(--text2)">'+escHtml(e.date)+'</div>'+
+          '</div>'+
+        '</div>';
+      return;
+    }
+
+    // Work day — full entry card
+    var isMet=/^met$/i.test((e.status||'').trim());
+    var isNotMet=/not met/i.test(e.status||'');
+    var statusColor=isMet?'var(--accent2)':isNotMet?'var(--red)':'var(--text2)';
+    var badgeBg=isMet?'rgba(63,185,80,.15)':'rgba(248,81,73,.15)';
     var IVS_D=['1st Break','Lunch','2nd Break','EOS'];
     var jcVals=IVS_D.map(function(iv){ return (e.iv&&e.iv[iv]&&e.iv[iv].jc)||0; });
-    html+='<tr style="background:'+bg+'">'+
-      '<td style="padding:6px 10px;color:var(--text);white-space:nowrap">'+escHtml(e.date)+'</td>'+
-      '<td style="padding:6px 10px;color:var(--text2);font-size:11px;white-space:nowrap">'+escHtml(e.wb||'')+'</td>';
-    jcVals.forEach(function(jc){ html+='<td style="padding:6px 10px;color:var(--text);text-align:right">'+jc+'</td>'; });
-    html+='<td style="padding:6px 10px;color:var(--text);text-align:right;font-weight:700">'+escHtml(String(e.totalJC||''))+'</td>'+
-      '<td style="padding:6px 10px;color:var(--text2);text-align:right">'+escHtml(String(e.prodS||''))+'</td>'+
-      '<td style="padding:6px 10px;text-align:right;font-weight:700;color:var(--text)">'+escHtml(String(e.avgAHT||''))+'</td>'+
-      '<td style="padding:6px 10px;text-align:right;color:var(--text2)">'+escHtml(String(e.target||''))+'</td>'+
-      '<td style="padding:6px 10px;color:'+statusColor+';font-weight:700">'+escHtml(e.status||'—')+'</td>'+
-      '<td style="padding:6px 10px;text-align:center">'+escHtml(e.locked?'🔒':'')+'</td></tr>';
+
+    html+=
+      '<div style="background:var(--bg-card);border:1px solid var(--border);border-radius:10px;padding:14px 16px">'+
+        '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">'+
+          '<div style="font-size:13px;font-weight:800;color:var(--text)">'+escHtml(e.date)+(e.locked?' 🔒':'')+'</div>'+
+          '<div style="font-size:11px;font-weight:700;padding:2px 8px;border-radius:10px;background:'+badgeBg+';color:'+statusColor+'">'+escHtml(e.status||'—')+'</div>'+
+        '</div>'+
+        // JC per interval grid
+        '<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin-bottom:10px">'+
+          IVS_D.map(function(iv,i){
+            var label=['1st Brk','Lunch','2nd Brk','EOS'][i];
+            return '<div style="background:var(--bg-el);border-radius:7px;padding:6px 8px;text-align:center">'+
+              '<div style="font-size:9px;color:var(--text2);font-weight:700;text-transform:uppercase">'+label+'</div>'+
+              '<div style="font-size:14px;font-weight:800;color:var(--text)">'+jcVals[i]+'</div>'+
+            '</div>';
+          }).join('')+
+        '</div>'+
+        // Summary row
+        '<div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:6px">'+
+          '<div style="background:var(--bg-el);border-radius:7px;padding:6px 8px;text-align:center">'+
+            '<div style="font-size:9px;color:var(--text2);font-weight:700;text-transform:uppercase">Total JC</div>'+
+            '<div style="font-size:13px;font-weight:800;color:var(--text)">'+escHtml(String(e.totalJC||0))+'</div>'+
+          '</div>'+
+          '<div style="background:var(--bg-el);border-radius:7px;padding:6px 8px;text-align:center">'+
+            '<div style="font-size:9px;color:var(--text2);font-weight:700;text-transform:uppercase">Avg AHT</div>'+
+            '<div style="font-size:13px;font-weight:800;color:'+statusColor+'">'+escHtml(String(e.avgAHT||'—'))+'s</div>'+
+          '</div>'+
+          '<div style="background:var(--bg-el);border-radius:7px;padding:6px 8px;text-align:center">'+
+            '<div style="font-size:9px;color:var(--text2);font-weight:700;text-transform:uppercase">Target AHT</div>'+
+            '<div style="font-size:13px;font-weight:800;color:var(--text2)">'+escHtml(String(e.target||'—'))+'s</div>'+
+          '</div>'+
+          '<div style="background:var(--bg-el);border-radius:7px;padding:6px 8px;text-align:center">'+
+            '<div style="font-size:9px;color:var(--text2);font-weight:700;text-transform:uppercase">Target JC</div>'+
+            '<div style="font-size:13px;font-weight:800;color:var(--text2)">'+Math.round(27000/(e.target||17))+'</div>'+
+          '</div>'+
+        '</div>'+
+      '</div>';
   });
-  html+='</tbody></table></div>';
+
+  if(!entries.length){
+    html+='<div style="color:var(--text2);font-size:13px;padding:20px 0">No entries found for this week.</div>';
+  }
+  html+='</div>';
   document.getElementById('mgr-drill-entries').innerHTML=html;
 }
 
