@@ -667,14 +667,39 @@ tr.locked-row td{opacity:.75}
     <!-- ── MANAGER TAB ── -->
     <div class="section" id="tab-manager">
       <div class="page-title">👔 TeamRoanne – Manager's View</div>
-      <div class="page-sub">Weekly Running Summary · matches what's in the backup spreadsheet</div>
-      <div style="display:flex;gap:8px;margin-bottom:14px;align-items:center">
+      <div class="page-sub">Weekly Running Summary · current WB by default · tap a row to expand</div>
+
+      <!-- Toolbar -->
+      <div style="display:flex;gap:8px;margin-bottom:10px;flex-wrap:wrap;align-items:center">
         <button class="btn btn-sm btn-primary" onclick="loadManagerView()">🔄 Refresh</button>
+        <label style="font-size:11px;color:var(--text2);display:flex;align-items:center;gap:4px">
+          <input type="checkbox" id="mgr-show-all-wb" onchange="applyMgrFilters()"> Show all weeks
+        </label>
         <span id="mgr-wb-label" style="font-size:11px;color:var(--text2)"></span>
       </div>
+
+      <!-- Column filters -->
+      <div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap;align-items:center">
+        <div style="display:flex;align-items:center;gap:4px">
+          <label style="font-size:10px;color:var(--text2);font-weight:700;text-transform:uppercase">User</label>
+          <select id="mgr-filter-user" onchange="applyMgrFilters()" style="font-size:11px;padding:4px 7px;border-radius:6px;border:1px solid var(--border);background:var(--bg-el);color:var(--text)">
+            <option value="">All</option>
+          </select>
+        </div>
+        <div style="display:flex;align-items:center;gap:4px">
+          <label style="font-size:10px;color:var(--text2);font-weight:700;text-transform:uppercase">If Met</label>
+          <select id="mgr-filter-met" onchange="applyMgrFilters()" style="font-size:11px;padding:4px 7px;border-radius:6px;border:1px solid var(--border);background:var(--bg-el);color:var(--text)">
+            <option value="">All</option>
+            <option value="yes">Yes</option>
+            <option value="no">No</option>
+          </select>
+        </div>
+        <span id="mgr-filter-count" style="font-size:11px;color:var(--text2);margin-left:auto"></span>
+      </div>
+
       <div id="mgr-status" style="font-size:12px;color:var(--text2);margin-bottom:10px"></div>
 
-      <!-- PL / UL leave cards (shown above the table) -->
+      <!-- PL / UL leave cards -->
       <div id="mgr-leave-cards" style="display:flex;flex-direction:column;gap:8px;margin-bottom:12px"></div>
 
       <!-- Weekly summary table -->
@@ -2642,9 +2667,10 @@ function openManagerFromSetup(){
     document.getElementById('setup-screen').style.display='none';
     document.getElementById('app').classList.add('visible');
     appInit();
-    // Show manager tab, hide log entry
+    // Show manager tab, hide log entry and entries
     document.getElementById('nav-manager').style.display='';
     document.getElementById('nav-log').style.display='none';
+    document.getElementById('nav-entries').style.display='none';
     // Reflect in settings panel
     document.getElementById('mgr-login-form').style.display='none';
     document.getElementById('mgr-logout-form').style.display='flex';
@@ -2676,6 +2702,7 @@ function submitManagerLogin(){
     document.getElementById('mgr-access-status').style.color='var(--accent2)';
     document.getElementById('nav-manager').style.display='';
     document.getElementById('nav-log').style.display='none';
+    document.getElementById('nav-entries').style.display='none';
   }).catch(function(err){ errEl.textContent=err.message; });
 }
 
@@ -2687,10 +2714,16 @@ function logoutManager(){
   document.getElementById('mgr-access-status').style.color='';
   document.getElementById('nav-manager').style.display='none';
   document.getElementById('nav-log').style.display='';
+  document.getElementById('nav-entries').style.display='';
   document.getElementById('mgr-password-input').value='';
   document.getElementById('mgr-login-err').textContent='';
   showTab('settings');
 }
+
+// ── manager state ──────────────────────────────────────────────
+var MGR_ALL_ROWS = [];
+var MGR_USER_WB_ENTRIES = {};
+var MGR_LATEST_WB = '';
 
 function loadManagerView(){
   if(!MGR_UNLOCKED){ showTab('settings'); return; }
@@ -2705,52 +2738,68 @@ function loadManagerView(){
     body:JSON.stringify({action:'getWeeklySummary'})
   }).then(function(r){ return r.json(); }).then(function(resp){
     if(resp.status!=='ok') throw new Error(resp.message||'Failed.');
+    MGR_ALL_ROWS = resp.result.rows||[];
+    MGR_USER_WB_ENTRIES = resp.result.userWBEntries||{};
+    MGR_LATEST_WB = resp.result.latestWB||'';
     status.textContent='Last refreshed: '+new Date().toLocaleTimeString();
-    renderManagerWeekly(resp.result.rows);
-  }).catch(function(err){
-    status.textContent='Error: '+err.message;
-  });
+    if(MGR_LATEST_WB) document.getElementById('mgr-wb-label').textContent='Current WB: '+MGR_LATEST_WB;
+    // Populate user filter dropdown
+    var userSel=document.getElementById('mgr-filter-user');
+    var prevUser=userSel.value;
+    userSel.innerHTML='<option value="">All</option>';
+    var users=[]; MGR_ALL_ROWS.forEach(function(r){ if(r.user&&users.indexOf(r.user)<0) users.push(r.user); });
+    users.sort().forEach(function(u){ userSel.innerHTML+='<option value="'+escHtml(u)+'">'+escHtml(u)+'</option>'; });
+    if(prevUser) userSel.value=prevUser;
+    applyMgrFilters();
+    // Fetch leave cards
+    fetch(SHEET_BACKUP_URL,{
+      method:'POST', headers:{'Content-Type':'text/plain;charset=utf-8'},
+      body:JSON.stringify({action:'getWBEntries'})
+    }).then(function(r2){ return r2.json(); }).then(function(resp2){
+      if(resp2.status==='ok') renderLeaveCards(resp2.result.entries||[], resp2.result.wb||'');
+    }).catch(function(){});
+  }).catch(function(err){ status.textContent='Error: '+err.message; });
+}
 
-  // Also fetch leave cards separately
-  fetch(SHEET_BACKUP_URL,{
-    method:'POST', headers:{'Content-Type':'text/plain;charset=utf-8'},
-    body:JSON.stringify({action:'getWBEntries'})
-  }).then(function(r){ return r.json(); }).then(function(resp){
-    if(resp.status!=='ok') return;
-    renderLeaveCards(resp.result.entries||[], resp.result.wb||'');
-  }).catch(function(){});
+function applyMgrFilters(){
+  var showAll = document.getElementById('mgr-show-all-wb').checked;
+  var filterUser = document.getElementById('mgr-filter-user').value;
+  var filterMet = document.getElementById('mgr-filter-met').value.toLowerCase();
+  var filtered = MGR_ALL_ROWS.filter(function(r){
+    if(!showAll && r.wb !== MGR_LATEST_WB) return false;
+    if(filterUser && r.user !== filterUser) return false;
+    if(filterMet){
+      var met=/^yes$/i.test(r.ifMet)?'yes':/^no$/i.test(r.ifMet)?'no':'';
+      if(met !== filterMet) return false;
+    }
+    return true;
+  });
+  document.getElementById('mgr-filter-count').textContent=filtered.length+' row'+(filtered.length===1?'':'s');
+  renderManagerWeekly(filtered);
 }
 
 function renderLeaveCards(entries, wb){
   var container=document.getElementById('mgr-leave-cards');
   if(wb) document.getElementById('mgr-wb-label').textContent='Current WB: '+wb;
   container.innerHTML='';
-  // Collect PL/UL full per user for current WB
   var leaveByUser={};
   entries.forEach(function(e){
-    var lt=e.leaveType||'none';
-    if(lt==='none') return;
+    var lt=e.leaveType||'none'; if(lt==='none') return;
     if(!leaveByUser[e.user]) leaveByUser[e.user]=[];
     leaveByUser[e.user].push({date:e.date, type:lt});
   });
   Object.keys(leaveByUser).sort().forEach(function(user){
-    var leaves=leaveByUser[user];
-    leaves.forEach(function(l){
+    leaveByUser[user].forEach(function(l){
       var isUL=l.type==='ul-full';
       var bg=isUL?'rgba(245,124,0,.1)':'rgba(14,165,233,.1)';
       var border=isUL?'rgba(245,124,0,.3)':'rgba(14,165,233,.3)';
       var color=isUL?'#F57C00':'#38BDF8';
-      var icon=isUL?'😈':'🏖️';
-      var label=isUL?'UL Full':'PL Full';
       container.innerHTML+=
         '<div style="background:'+bg+';border:1px solid '+border+';border-radius:10px;padding:10px 14px;display:flex;align-items:center;gap:10px">'+
-          '<span style="font-size:20px">'+icon+'</span>'+
-          '<div>'+
-            '<span style="font-size:13px;font-weight:800;color:'+color+'">'+escHtml(user)+'</span>'+
-            '<span style="font-size:12px;font-weight:700;color:'+color+';margin-left:8px">'+label+'</span>'+
-            '<div style="font-size:11px;color:var(--text2);margin-top:2px">'+escHtml(l.date)+'</div>'+
-          '</div>'+
-        '</div>';
+          '<span style="font-size:20px">'+(isUL?'😈':'🏖️')+'</span>'+
+          '<div><span style="font-size:13px;font-weight:800;color:'+color+'">'+escHtml(user)+'</span>'+
+          '<span style="font-size:12px;font-weight:700;color:'+color+';margin-left:8px">'+(isUL?'UL Full':'PL Full')+'</span>'+
+          '<div style="font-size:11px;color:var(--text2);margin-top:2px">'+escHtml(l.date)+'</div></div></div>';
     });
   });
 }
@@ -2758,14 +2807,13 @@ function renderLeaveCards(entries, wb){
 function renderManagerWeekly(rows){
   var container=document.getElementById('mgr-weekly-table');
   if(!rows||!rows.length){
-    container.innerHTML='<div style="color:var(--text2);font-size:13px;padding:16px 0">No weekly summary data found in the Sheet.</div>';
+    container.innerHTML='<div style="color:var(--text2);font-size:13px;padding:16px 0">No rows match the current filters.</div>';
     return;
   }
   var html='<div style="overflow-x:auto;-webkit-overflow-scrolling:touch">';
   html+='<table style="width:100%;border-collapse:collapse;font-size:13px">';
-  // Header row matching the spreadsheet exactly
   html+='<thead><tr style="background:var(--bg-el)">';
-  ['User','Week Beginning','WB JC','WB AHT (s)','AHT Target (s)','If Met','Days'].forEach(function(h){
+  ['','User','Week Beginning','WB JC','WB AHT (s)','AHT Target (s)','If Met','Days'].forEach(function(h){
     html+='<th style="padding:8px 12px;text-align:left;font-size:10px;font-weight:700;color:var(--text2);white-space:nowrap;border-bottom:2px solid var(--border)">'+escHtml(h)+'</th>';
   });
   html+='</tr></thead><tbody>';
@@ -2776,19 +2824,68 @@ function renderManagerWeekly(rows){
     var metColor=isMet?'var(--accent2)':isNotMet?'var(--red)':'var(--text2)';
     var ahtColor=isMet?'var(--accent2)':isNotMet?'var(--red)':'var(--text)';
     var bg=i%2===0?'var(--bg-card)':'var(--bg-el)';
-    html+='<tr style="background:'+bg+'">';
+    var rowId='mgr-row-'+i;
+    var hasDetail=!!(MGR_USER_WB_ENTRIES[r.user]&&MGR_USER_WB_ENTRIES[r.user].length);
+
+    html+='<tr id="'+rowId+'" data-rid="'+rowId+'" style="background:'+bg+';cursor:'+( hasDetail?'pointer':'default')+'" '+( hasDetail?'onclick="toggleMgrDetail(this.dataset.rid)"':"")+' title="'+( hasDetail?'Click to expand daily entries':"")+'">';
+    html+='<td style="padding:8px 10px;text-align:center;font-size:11px;color:var(--text2);user-select:none">'+escHtml(hasDetail?'▶':'')+'</td>';
     html+='<td style="padding:8px 12px;font-weight:800;color:var(--accent);white-space:nowrap">'+escHtml(r.user)+'</td>';
     html+='<td style="padding:8px 12px;color:var(--text2);font-size:11px;white-space:nowrap">'+escHtml(r.wb)+'</td>';
-    html+='<td style="padding:8px 12px;color:var(--text);text-align:right;font-weight:700;font-family:\'SF Mono\',monospace">'+escHtml(r.wbJC)+'</td>';
-    html+='<td style="padding:8px 12px;text-align:right;font-weight:800;font-family:\'SF Mono\',monospace;color:'+ahtColor+'">'+escHtml(r.wbAHT)+'</td>';
-    html+='<td style="padding:8px 12px;text-align:right;color:var(--text2);font-family:\'SF Mono\',monospace">'+escHtml(r.ahtTarget)+'</td>';
+    html+='<td style="padding:8px 12px;color:var(--text);text-align:right;font-weight:700;font-family:monospace">'+escHtml(r.wbJC)+'</td>';
+    html+='<td style="padding:8px 12px;text-align:right;font-weight:800;font-family:monospace;color:'+ahtColor+'">'+escHtml(r.wbAHT)+'</td>';
+    html+='<td style="padding:8px 12px;text-align:right;color:var(--text2);font-family:monospace">'+escHtml(r.ahtTarget)+'</td>';
     html+='<td style="padding:8px 12px;font-weight:700;color:'+metColor+'">'+escHtml(r.ifMet)+'</td>';
     html+='<td style="padding:8px 12px;color:var(--text2);text-align:center">'+escHtml(r.days)+'</td>';
     html+='</tr>';
+
+    // Hidden detail rows
+    html+='<tr id="'+rowId+'-detail" style="display:none"><td colspan="8" style="padding:0">';
+    if(hasDetail){
+      var entries=MGR_USER_WB_ENTRIES[r.user];
+      html+='<div style="background:var(--bg-el);border-left:3px solid var(--accent);padding:10px 14px">';
+      html+='<table style="width:100%;border-collapse:collapse;font-size:11px"><thead><tr>';
+      ['Date','1st Brk','Lunch','2nd Brk','EOS','Total JC','Avg AHT','Status'].forEach(function(h){
+        html+='<th style="padding:4px 8px;text-align:left;font-size:9px;font-weight:700;color:var(--text2);text-transform:uppercase;white-space:nowrap;border-bottom:1px solid var(--border)">'+escHtml(h)+'</th>';
+      });
+      html+='</tr></thead><tbody>';
+      entries.forEach(function(e,ei){
+        var ebg=ei%2===0?'transparent':'rgba(255,255,255,.03)';
+        var eMet=/^met$/i.test(e.status||'');
+        var eColor=eMet?'var(--accent2)':(e.isRest||e.isPlFull||e.isUlFull)?'var(--text2)':'var(--red)';
+        var eStatus=e.isPlFull?'🏖️ PL Full':e.isUlFull?'😈 UL Full':e.isRest?'😴 Rest':e.status||'—';
+        html+='<tr style="background:'+ebg+'">';
+        html+='<td style="padding:4px 8px;color:var(--text);white-space:nowrap">'+escHtml(e.date)+'</td>';
+        if(e.isRest||e.isPlFull||e.isUlFull){
+          html+='<td colspan="5" style="padding:4px 8px;color:var(--text2);font-style:italic">'+escHtml(eStatus)+'</td>';
+          html+='<td style="padding:4px 8px;color:var(--text2)">—</td>';
+        } else {
+          e.jcVals.forEach(function(jc){ html+='<td style="padding:4px 8px;text-align:right;color:var(--text)">'+jc+'</td>'; });
+          html+='<td style="padding:4px 8px;text-align:right;font-weight:700;color:var(--text)">'+e.totalJC+'</td>';
+          html+='<td style="padding:4px 8px;text-align:right;font-weight:700;color:'+eColor+'">'+e.avgAHT+'s</td>';
+        }
+        html+='<td style="padding:4px 8px;font-weight:700;color:'+eColor+'">'+escHtml(eStatus)+'</td>';
+        html+='</tr>';
+      });
+      html+='</tbody></table></div>';
+    }
+    html+='</td></tr>';
   });
   html+='</tbody></table></div>';
   container.innerHTML=html;
 }
+
+function toggleMgrDetail(rowId){
+  var detailRow=document.getElementById(rowId+'-detail');
+  var summaryRow=document.getElementById(rowId);
+  if(!detailRow) return;
+  var isOpen=detailRow.style.display!=='none';
+  detailRow.style.display=isOpen?'none':'';
+  var arrow=summaryRow.querySelector('td:first-child');
+  if(arrow) arrow.textContent=isOpen?'▶':'▼';
+}
+
+function showManagerSummary(){}
+
 
 
 function escHtml(s){
