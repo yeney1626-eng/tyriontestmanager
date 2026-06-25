@@ -666,21 +666,33 @@ tr.locked-row td{opacity:.75}
 
     <!-- ── MANAGER TAB ── -->
     <div class="section" id="tab-manager">
-      <div class="page-title">👔 Manager View</div>
-      <div class="page-sub">Team AHT summary for the current week · tap a card to drill in</div>
-      <div style="display:flex;gap:8px;margin-bottom:14px;flex-wrap:wrap;align-items:center">
-        <button class="btn btn-sm btn-primary" onclick="loadManagerView()">🔄 Refresh</button>
-        <button class="btn btn-sm" id="mgr-back-btn" style="display:none" onclick="showManagerSummary()">← Back to Summary</button>
-        <span id="mgr-drill-label" style="font-size:12px;color:var(--accent);font-weight:700"></span>
+      <div class="page-title">👔 TeamRoanne – Manager's View</div>
+      <div class="page-sub">Current WB team summary · tap a card to see all entries</div>
+      <!-- Sub-tab switcher -->
+      <div style="display:flex;gap:6px;margin-bottom:14px;flex-wrap:wrap;align-items:center;border-bottom:1px solid var(--border);padding-bottom:10px">
+        <button class="btn btn-sm btn-primary" id="mgr-tab-summary-btn" onclick="switchMgrTab('summary')">📊 Summary</button>
+        <button class="btn btn-sm" id="mgr-tab-entries-btn" onclick="switchMgrTab('entries')">📋 Entries</button>
+        <button class="btn btn-sm" style="margin-left:auto" onclick="loadManagerView()">🔄 Refresh</button>
       </div>
       <div id="mgr-status" style="font-size:12px;color:var(--text2);margin-bottom:10px"></div>
-      <!-- Summary cards -->
+
+      <!-- Summary view -->
       <div id="mgr-summary-view">
+        <div style="display:flex;gap:8px;margin-bottom:10px;align-items:center">
+          <button class="btn btn-sm" id="mgr-back-btn" style="display:none" onclick="showManagerSummary()">← Back to Summary</button>
+          <span id="mgr-drill-label" style="font-size:12px;color:var(--accent);font-weight:700"></span>
+        </div>
         <div id="mgr-cards" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:12px"></div>
+        <!-- Drill-down entries table -->
+        <div id="mgr-drill-view" style="display:none;margin-top:10px">
+          <div id="mgr-drill-entries"></div>
+        </div>
       </div>
-      <!-- Drill-down entries table -->
-      <div id="mgr-drill-view" style="display:none">
-        <div id="mgr-drill-entries"></div>
+
+      <!-- Entries view — current WB all users -->
+      <div id="mgr-entries-view" style="display:none">
+        <div style="font-size:11px;color:var(--text2);margin-bottom:10px" id="mgr-entries-wb-label"></div>
+        <div id="mgr-entries-table"></div>
       </div>
     </div>
     <div class="section" id="tab-game">
@@ -1433,9 +1445,15 @@ function showTab(t){
 function appInit(){
   loadTheme();
   rebuildWBS();
-  // Update sidebar name
-  var snEl=document.getElementById('sidebar-name'); snEl.childNodes[0].textContent='TeamRoanne · '+S.name+"'s Tracker ";
-  document.getElementById('mobile-name').textContent=S.name+' · TeamRoanne';
+  // Update sidebar and mobile header — show manager title when in manager mode
+  if(MGR_UNLOCKED && S.name==='__manager__'){
+    var snEl=document.getElementById('sidebar-name');
+    snEl.childNodes[0].textContent='TeamRoanne – Manager\'s View ';
+    document.getElementById('mobile-name').textContent='TeamRoanne – Manager\'s View';
+  } else {
+    var snEl=document.getElementById('sidebar-name'); snEl.childNodes[0].textContent='TeamRoanne · '+S.name+"'s Tracker ";
+    document.getElementById('mobile-name').textContent=S.name+' · TeamRoanne';
+  }
   // Build log form
   buildIVInputs();
   var td=today(); document.getElementById('inp-date').value=td; autoSetWB(td); updateJCPreview(); checkDateSummary(td);
@@ -2691,11 +2709,11 @@ function logoutManager(){
 
 function loadManagerView(){
   if(!MGR_UNLOCKED){ showTab('settings'); return; }
+  switchMgrTab('summary');
   var status=document.getElementById('mgr-status');
   status.textContent='Fetching team data from Sheet…';
   document.getElementById('mgr-cards').innerHTML='';
   document.getElementById('mgr-drill-view').style.display='none';
-  document.getElementById('mgr-summary-view').style.display='';
   document.getElementById('mgr-back-btn').style.display='none';
   document.getElementById('mgr-drill-label').textContent='';
   fetch(SHEET_BACKUP_URL,{
@@ -2816,9 +2834,98 @@ function drillIntoUser(u){
   document.getElementById('mgr-drill-entries').innerHTML=html;
 }
 
+function switchMgrTab(tab){
+  var isSummary = tab==='summary';
+  document.getElementById('mgr-summary-view').style.display = isSummary ? '' : 'none';
+  document.getElementById('mgr-entries-view').style.display = isSummary ? 'none' : '';
+  document.getElementById('mgr-tab-summary-btn').className = 'btn btn-sm'+(isSummary?' btn-primary':'');
+  document.getElementById('mgr-tab-entries-btn').className = 'btn btn-sm'+(!isSummary?' btn-primary':'');
+  if(!isSummary) loadMgrWBEntries();
+}
+
+function loadMgrWBEntries(){
+  var tbl = document.getElementById('mgr-entries-table');
+  var lbl = document.getElementById('mgr-entries-wb-label');
+  tbl.innerHTML='<div style="color:var(--text2);font-size:12px">Loading entries…</div>';
+  lbl.textContent='';
+  fetch(SHEET_BACKUP_URL,{
+    method:'POST', headers:{'Content-Type':'text/plain;charset=utf-8'},
+    body:JSON.stringify({action:'getWBEntries'})
+  }).then(function(r){ return r.json(); }).then(function(resp){
+    if(resp.status!=='ok') throw new Error(resp.message||'Failed.');
+    var result=resp.result;
+    lbl.textContent='Current WB: '+(result.wb||'—')+' · '+result.entries.length+' entries across all users';
+    renderMgrWBEntries(result.entries);
+  }).catch(function(err){
+    tbl.innerHTML='<div style="color:var(--red);font-size:12px">Error: '+escHtml(err.message)+'</div>';
+  });
+}
+
+function renderMgrWBEntries(entries){
+  var tbl=document.getElementById('mgr-entries-table');
+  if(!entries||!entries.length){
+    tbl.innerHTML='<div style="color:var(--text2);font-size:13px;padding:16px 0">No entries found for the current WB.</div>';
+    return;
+  }
+  var IVS_D=['1st Break','Lunch','2nd Break','EOS'];
+  var html='<div style="overflow-x:auto;-webkit-overflow-scrolling:touch">';
+  html+='<table style="width:100%;border-collapse:collapse;font-size:12px;min-width:760px">';
+  html+='<thead><tr style="background:var(--bg-el)">';
+  ['User','Date','1st Brk JC','Lunch JC','2nd Brk JC','EOS JC','Total JC','Prod (s)','Avg AHT (s)','Target','Status','Locked'].forEach(function(h){
+    html+='<th style="padding:7px 10px;text-align:left;font-size:10px;font-weight:700;color:var(--text2);white-space:nowrap;border-bottom:2px solid var(--border)">'+escHtml(h)+'</th>';
+  });
+  html+='</tr></thead><tbody>';
+
+  var lastUser='';
+  entries.forEach(function(e,i){
+    var isNewUser = e.user !== lastUser;
+    lastUser = e.user;
+    var bg = i%2===0 ? 'var(--bg-card)' : 'var(--bg-el)';
+    var lt = e.leaveType||'none';
+    var isPlFull = lt==='pl-full'||/pl.*full/i.test(e.status||'');
+    var isUlFull = lt==='ul-full'||/ul.*full/i.test(e.status||'');
+    var isMet = /^met$/i.test((e.status||'').trim());
+    var statusColor = isMet?'var(--accent2)':(e.isRestDay||isPlFull||isUlFull)?'var(--text2)':'var(--red)';
+    var statusDisplay = e.status||'—';
+    if(isPlFull) statusDisplay='🏖️ PL Full';
+    else if(isUlFull) statusDisplay='😈 UL Full';
+    else if(e.isRestDay) statusDisplay='😴 Rest Day';
+
+    // Separator row between users
+    if(isNewUser && i>0){
+      html+='<tr><td colspan="12" style="padding:2px 0;background:var(--border)"></td></tr>';
+    }
+
+    var jcVals = IVS_D.map(function(iv){ return (e.iv&&e.iv[iv]&&e.iv[iv].jc)||0; });
+
+    html+='<tr style="background:'+bg+(isNewUser?';border-top:2px solid var(--border)':'')+'">';
+    html+='<td style="padding:6px 10px;font-weight:800;color:var(--accent);white-space:nowrap">'+escHtml(isNewUser?e.user:'')+'</td>';
+    html+='<td style="padding:6px 10px;color:var(--text);white-space:nowrap">'+escHtml(e.date)+'</td>';
+
+    if(e.isRestDay||isPlFull||isUlFull){
+      html+='<td colspan="6" style="padding:6px 10px;color:var(--text2);font-style:italic">'+escHtml(statusDisplay)+'</td>';
+      html+='<td colspan="2" style="padding:6px 10px;color:var(--text2)">—</td>';
+      html+='<td style="padding:6px 10px;color:var(--text2)">—</td>';
+    } else {
+      jcVals.forEach(function(jc){
+        html+='<td style="padding:6px 10px;color:var(--text);text-align:right">'+jc+'</td>';
+      });
+      html+='<td style="padding:6px 10px;text-align:right;font-weight:700;color:var(--text)">'+escHtml(String(e.totalJC||0))+'</td>';
+      html+='<td style="padding:6px 10px;text-align:right;color:var(--text2)">'+escHtml(String(e.prodS||'—'))+'</td>';
+      html+='<td style="padding:6px 10px;text-align:right;font-weight:700;color:'+statusColor+'">'+escHtml(String(e.avgAHT||'—'))+'s</td>';
+      html+='<td style="padding:6px 10px;text-align:right;color:var(--text2)">'+escHtml(String(e.targetJCRaw||'—'))+'</td>';
+    }
+    html+='<td style="padding:6px 10px;color:'+statusColor+';font-weight:700;white-space:nowrap">'+escHtml(statusDisplay)+'</td>';
+    html+='<td style="padding:6px 10px;text-align:center">'+escHtml(e.locked?'🔒':'')+'</td>';
+    html+='</tr>';
+  });
+  html+='</tbody></table></div>';
+  tbl.innerHTML=html;
+}
+
 function showManagerSummary(){
-  document.getElementById('mgr-summary-view').style.display='';
   document.getElementById('mgr-drill-view').style.display='none';
+  document.getElementById('mgr-cards').style.display='';
   document.getElementById('mgr-back-btn').style.display='none';
   document.getElementById('mgr-drill-label').textContent='';
 }
