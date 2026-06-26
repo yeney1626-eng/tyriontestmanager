@@ -677,6 +677,7 @@ tr.locked-row td{opacity:.75}
         </div>
         <button class="btn btn-sm" id="mgr-next-btn" onclick="mgrNavWB(1)" style="font-size:13px;padding:4px 12px">Next ›</button>
         <button class="btn btn-sm btn-primary" onclick="loadManagerView()" style="margin-left:4px">🔄</button>
+        <button class="btn btn-sm" id="mgr-collapse-btn" onclick="collapseAllMgrRows()" style="margin-left:2px;display:none" title="Collapse all expanded rows">⬆ Collapse All</button>
       </div>
 
       <!-- Column filters -->
@@ -2736,6 +2737,7 @@ function loadManagerView(){
   document.getElementById('mgr-status').textContent='Fetching data from Sheet…';
   document.getElementById('mgr-weekly-table').innerHTML='';
   document.getElementById('mgr-leave-cards').innerHTML='';
+  var _colBtn=document.getElementById('mgr-collapse-btn'); if(_colBtn) _colBtn.style.display='none';
   // Show a loading placeholder in the WB display so it doesn't flash "—"
   if(!document.getElementById('mgr-wb-display').textContent || document.getElementById('mgr-wb-display').textContent==='—'){
     document.getElementById('mgr-wb-display').textContent='Loading…';
@@ -2768,7 +2770,8 @@ function loadManagerView(){
     MGR_ALL_WBS = Object.keys(wbSet).sort();           // oldest→newest chronologically
     MGR_WB_IDX  = MGR_ALL_WBS.length - 1;             // default: current (latest) WB
     // Immediately show the current WB label so the display never stays "—" or "Loading…"
-    var _latestWBLabel = MGR_WB_DATE_TO_LABEL[MGR_ALL_WBS[MGR_WB_IDX]] || MGR_LATEST_WB || MGR_ALL_WBS[MGR_WB_IDX] || '—';
+    var _curWBDate = MGR_ALL_WBS[MGR_WB_IDX] || '';
+    var _latestWBLabel = MGR_WB_DATE_TO_LABEL[_curWBDate] || _curWBDate || '—';
     document.getElementById('mgr-wb-display').textContent = _latestWBLabel;
 
     // Populate user filter
@@ -2794,7 +2797,8 @@ function mgrNavWB(dir){
 
 function updateMgrWBNav(){
   var wb = MGR_ALL_WBS[MGR_WB_IDX] || MGR_LATEST_WB;
-  var wbLabel = MGR_WB_DATE_TO_LABEL[wb] || MGR_LATEST_WB || wb;
+  // Use the mapped label if available; fall back to the date string itself (never to MGR_LATEST_WB which is a different older WB).
+  var wbLabel = MGR_WB_DATE_TO_LABEL[wb] || wb;
   document.getElementById('mgr-wb-display').textContent = wbLabel || '—';
   document.getElementById('mgr-wb-index-label').textContent =
     'Week '+(MGR_WB_IDX+1)+' of '+MGR_ALL_WBS.length;
@@ -2804,6 +2808,7 @@ function updateMgrWBNav(){
   // Fetch leave cards — translate date-format WB to label-format for Entries sheet
   var entryWBLabel = MGR_WB_DATE_TO_LABEL[wb] || wb;
   document.getElementById('mgr-leave-cards').innerHTML='';
+  var _cb=document.getElementById('mgr-collapse-btn'); if(_cb) _cb.style.display='none';
   fetch(SHEET_BACKUP_URL,{
     method:'POST', headers:{'Content-Type':'text/plain;charset=utf-8'},
     body:JSON.stringify({action:'getWBEntries', wb: entryWBLabel})
@@ -3102,6 +3107,34 @@ function toggleMgrDetail(rowId){
   detailRow.style.display=isOpen?'none':'';
   var arrow=summaryRow.querySelector('td:first-child');
   if(arrow) arrow.textContent=isOpen?'▶':'▼';
+  // Show "Collapse All" button whenever at least one row is open
+  var anyOpen=document.querySelectorAll('[id^="mgr-row-"][id$="-detail"]');
+  var hasOpen=false;
+  for(var i=0;i<anyOpen.length;i++){ if(anyOpen[i].style.display!=='none'){ hasOpen=true; break; } }
+  var btn=document.getElementById('mgr-collapse-btn');
+  if(btn) btn.style.display=hasOpen?'':'none';
+}
+
+function collapseAllMgrRows(){
+  // Collapse all open detail rows
+  var detailRows=document.querySelectorAll('[id^="mgr-row-"][id$="-detail"]');
+  detailRows.forEach(function(el){
+    el.style.display='none';
+    var rid=el.id.replace('-detail','');
+    var summaryRow=document.getElementById(rid);
+    if(summaryRow){ var arrow=summaryRow.querySelector('td:first-child'); if(arrow) arrow.textContent='▶'; }
+  });
+  // Also collapse any open week-detail sub-sections
+  var weekDetails=document.querySelectorAll('[id$="-week"]');
+  weekDetails.forEach(function(el){
+    if(el.style.display!=='none'){
+      el.style.display='none';
+      var btn=document.getElementById(el.id+'-btn');
+      if(btn){ var m=btn.textContent.match(/\((\d+)\)/); var n=m?m[1]:''; btn.textContent='▶ Show all entries this week'+(n?' ('+n+')':''); }
+    }
+  });
+  var colBtn=document.getElementById('mgr-collapse-btn');
+  if(colBtn) colBtn.style.display='none';
 }
 
 function toggleWeekDetail(weekId){
