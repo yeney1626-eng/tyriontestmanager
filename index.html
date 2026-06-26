@@ -2073,6 +2073,24 @@ function shiftDate(days){
   inp._userEdited=true;
   autoSetWB(inp.value); updateJCPreview(); checkDateSummary(inp.value);
 }
+// After saving a leave or locking a day: if the saved entry belongs to a
+// different WB than today's WB (i.e. the user was logging a future-WB leave),
+// snap back to today instead of advancing past the WB boundary.
+// Otherwise do a normal +1 day shift so sequential same-WB logging still works.
+function smartAdvanceDate(savedDate){
+  var currentWBLabel = currentWB(); // the WB label for today
+  var savedWBLabel = (WBS.slice().reverse().find(function(w){ return w.date <= savedDate; })||{}).label || '';
+  if(savedWBLabel && savedWBLabel !== currentWBLabel){
+    // Revert to today's WB — find next un-locked workday from today
+    var td = today();
+    var inp = document.getElementById('inp-date'); if(!inp) return;
+    inp.value = td;
+    inp._userEdited = true;
+    autoSetWB(td); updateJCPreview(); checkDateSummary(td);
+  } else {
+    shiftDate(1);
+  }
+}
 function shiftMonth(months){
   var inp=document.getElementById('inp-date'); if(!inp) return;
   var cur=inp.value||today();
@@ -2335,11 +2353,12 @@ function addEntry(skipBackup){
     S.entries.push(e);
     persist();
   }
-  // PL full / UL full: auto-lock and advance to next day immediately
+  // PL full / UL full: auto-lock and advance to next day immediately.
+  // If the leave date is in a future WB, revert to today's WB instead.
   if(isFullLeave){
     var lockIdx=S.entries.findIndex(function(e){return e.date===date;});
     if(lockIdx>=0){ S.entries[lockIdx].locked=true; S.entries[lockIdx].lockedAt=Date.now(); persist(); backupEntryToSheet(S.entries[lockIdx]); backupWeeklySummaryToSheet(S.entries[lockIdx].date); }
-    shiftDate(1);
+    smartAdvanceDate(date);
     return;
   }
   // Sync every save (not just lock) so the sheet reflects updates in near
@@ -2376,7 +2395,7 @@ function saveAndLock(){
     else{
       var idx2=S.entries.findIndex(function(e){return e.date===date;});
       if(idx2>=0){ S.entries[idx2].locked=true; S.entries[idx2].lockedAt=Date.now(); persist(); backupEntryToSheet(S.entries[idx2]); backupWeeklySummaryToSheet(S.entries[idx2].date); }
-      shiftDate(1);
+      smartAdvanceDate(date);
     }
     return;
   }
@@ -2388,7 +2407,7 @@ function saveAndLock(){
   persist();
   backupEntryToSheet(S.entries[idx]);
   backupWeeklySummaryToSheet(S.entries[idx].date);
-  shiftDate(1);
+  smartAdvanceDate(date);
 }
 
 function unlockEntry(dateVal){
