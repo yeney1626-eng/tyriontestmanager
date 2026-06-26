@@ -2888,10 +2888,6 @@ function renderLeaveCards(entries){
 
 function renderManagerWeekly(rows, currentWB){
   var container=document.getElementById('mgr-weekly-table');
-  if(!rows||!rows.length){
-    container.innerHTML='<div style="color:var(--text2);font-size:13px;padding:16px 0">No entries for this week yet.</div>';
-    return;
-  }
 
   // Build per-user entry lookup for this WB
   // Priority: MGR_USER_WB_ALL (fetched from entries) then MGR_USER_WB_ENTRIES (from weekly call)
@@ -2912,7 +2908,43 @@ function renderManagerWeekly(rows, currentWB){
     userEntryMap[u].sort(function(a,b){ return b.date.localeCompare(a.date); });
   });
 
+  // If the Weekly Summary has no rows yet for this WB (e.g. early in the week
+  // before anyone has locked), synthesize stub rows from the Entries data so
+  // the manager can still see who has saved entries and expand to inspect them.
+  if((!rows||!rows.length) && Object.keys(userEntryMap).length){
+    rows = Object.keys(userEntryMap).sort().map(function(u){
+      var ents = userEntryMap[u];
+      // Compute running totals from raw entries
+      var totalJC=0, totalProd=0;
+      ents.forEach(function(e){
+        if(!e.isRest && !e.isPlFull && !e.isUlFull){
+          totalJC  += (e.totalJC||0);
+          totalProd += 0; // prodS not always available here; skip AHT calc
+        }
+      });
+      return {
+        user:    u,
+        wb:      (ents[0]&&ents[0].wb)||currentWB,
+        wbJC:    totalJC ? String(totalJC) : '—',
+        wbAHT:   '—',
+        ahtTarget:'—',
+        ifMet:   '—',
+        days:    ents.length+'/5',
+        _stub:   true  // flag so we can note these are provisional
+      };
+    });
+  }
+
+  if(!rows||!rows.length){
+    container.innerHTML='<div style="color:var(--text2);font-size:13px;padding:16px 0">No entries for this week yet.</div>';
+    return;
+  }
   var html='<div style="overflow-x:auto;-webkit-overflow-scrolling:touch">';
+  // If rows are provisional (no locked entries yet), show a note
+  var isStub = rows.length && rows[0]._stub;
+  if(isStub){
+    html+='<div style="font-size:11px;color:var(--text2);padding:4px 0 8px;font-style:italic">⚠️ Weekly Summary not yet updated — showing raw entry data (no locks yet this week).</div>';
+  }
   html+='<table style="width:100%;border-collapse:collapse;font-size:13px">';
   html+='<thead><tr style="background:var(--bg-el)">';
   ['','User','Week Beginning','WB JC','WB AHT (s)','AHT Target (s)','If Met'].forEach(function(h){
