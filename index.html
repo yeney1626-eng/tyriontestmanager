@@ -2729,6 +2729,7 @@ var MGR_LATEST_WB     = '';
 var MGR_ALL_WBS       = [];   // sorted list of unique WB values (oldest→newest)
 var MGR_WB_IDX        = 0;    // current index into MGR_ALL_WBS
 var MGR_USER_WB_ALL   = {};   // entries keyed by WB label for all weeks
+var MGR_WB_DATE_TO_LABEL = {}; // maps date-format WB → label-format WB for getWBEntries
 
 function loadManagerView(){
   if(!MGR_UNLOCKED){ showTab('settings'); return; }
@@ -2744,6 +2745,7 @@ function loadManagerView(){
     MGR_ALL_ROWS        = resp.result.rows||[];
     MGR_USER_WB_ENTRIES = resp.result.userWBEntries||{};
     MGR_LATEST_WB       = resp.result.latestWB||'';
+    MGR_WB_DATE_TO_LABEL = resp.result.wbDateToLabel||{};
 
     // Build sorted unique WB list from all rows
     var wbSet={};
@@ -2780,15 +2782,16 @@ function updateMgrWBNav(){
   document.getElementById('mgr-prev-btn').disabled = MGR_WB_IDX <= 0;
   document.getElementById('mgr-next-btn').disabled = MGR_WB_IDX >= MGR_ALL_WBS.length-1;
 
-  // Fetch leave/rest cards for this specific WB from Entries sheet
+  // Fetch leave/rest cards — translate date-format WB to label-format for Entries sheet
+  var entryWBLabel = MGR_WB_DATE_TO_LABEL[wb] || wb;
   document.getElementById('mgr-leave-cards').innerHTML='<span style="font-size:11px;color:var(--text2)">Loading cards…</span>';
   fetch(SHEET_BACKUP_URL,{
     method:'POST', headers:{'Content-Type':'text/plain;charset=utf-8'},
-    body:JSON.stringify({action:'getWBEntries', wb: wb})
+    body:JSON.stringify({action:'getWBEntries', wb: entryWBLabel})
   }).then(function(r){ return r.json(); }).then(function(resp){
     var dbg=document.getElementById('mgr-cards-debug');
     if(!dbg){ dbg=document.createElement('pre'); dbg.id='mgr-cards-debug'; dbg.style.cssText='font-size:9px;color:var(--text2);background:var(--bg-el);border:1px solid var(--border);border-radius:6px;padding:8px;margin-top:6px;max-height:160px;overflow:auto;white-space:pre-wrap;word-break:break-all'; document.getElementById('mgr-leave-cards').insertAdjacentElement('afterend',dbg); }
-    dbg.textContent='WB sent: '+wb+'\nresp.status: '+resp.status+'\nentries count: '+((resp.result&&resp.result.entries)||[]).length+'\nFirst 3 entries:\n'+JSON.stringify(((resp.result&&resp.result.entries)||[]).slice(0,3),null,2);
+    dbg.textContent='WB sent: '+entryWBLabel+'\nresp.status: '+resp.status+'\nentries count: '+((resp.result&&resp.result.entries)||[]).length+'\nFirst 3 entries:\n'+JSON.stringify(((resp.result&&resp.result.entries)||[]).slice(0,3),null,2);
     if(resp.status==='ok') renderLeaveCards(resp.result.entries||[]);
     if(resp.status==='ok') MGR_USER_WB_ALL[wb] = resp.result.entries||[];
   }).catch(function(err){
