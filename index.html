@@ -2782,24 +2782,16 @@ function updateMgrWBNav(){
   document.getElementById('mgr-prev-btn').disabled = MGR_WB_IDX <= 0;
   document.getElementById('mgr-next-btn').disabled = MGR_WB_IDX >= MGR_ALL_WBS.length-1;
 
-  // Fetch leave/rest cards — translate date-format WB to label-format for Entries sheet
+  // Fetch leave cards — translate date-format WB to label-format for Entries sheet
   var entryWBLabel = MGR_WB_DATE_TO_LABEL[wb] || wb;
-  document.getElementById('mgr-leave-cards').innerHTML='<span style="font-size:11px;color:var(--text2)">Loading cards…</span>';
+  document.getElementById('mgr-leave-cards').innerHTML='';
   fetch(SHEET_BACKUP_URL,{
     method:'POST', headers:{'Content-Type':'text/plain;charset=utf-8'},
     body:JSON.stringify({action:'getWBEntries', wb: entryWBLabel})
   }).then(function(r){ return r.json(); }).then(function(resp){
-    var dbg=document.getElementById('mgr-cards-debug');
-    if(!dbg){ dbg=document.createElement('pre'); dbg.id='mgr-cards-debug'; dbg.style.cssText='font-size:9px;color:var(--text2);background:var(--bg-el);border:1px solid var(--border);border-radius:6px;padding:8px;margin-top:6px;max-height:160px;overflow:auto;white-space:pre-wrap;word-break:break-all'; document.getElementById('mgr-leave-cards').insertAdjacentElement('afterend',dbg); }
-    dbg.textContent='WB sent: '+entryWBLabel+'\nresp.status: '+resp.status+'\nentries count: '+((resp.result&&resp.result.entries)||[]).length+'\nFirst 3 entries:\n'+JSON.stringify(((resp.result&&resp.result.entries)||[]).slice(0,3),null,2);
     if(resp.status==='ok') renderLeaveCards(resp.result.entries||[]);
     if(resp.status==='ok') MGR_USER_WB_ALL[wb] = resp.result.entries||[];
-  }).catch(function(err){
-    var dbg=document.getElementById('mgr-cards-debug');
-    if(!dbg){ dbg=document.createElement('pre'); dbg.id='mgr-cards-debug'; dbg.style.cssText='font-size:9px;color:var(--red);background:var(--bg-el);border:1px solid var(--border);border-radius:6px;padding:8px;margin-top:6px'; document.getElementById('mgr-leave-cards').insertAdjacentElement('afterend',dbg); }
-    dbg.textContent='FETCH ERROR: '+err.message;
-    document.getElementById('mgr-leave-cards').innerHTML='';
-  });
+  }).catch(function(){});
 
   applyMgrFilters();
 }
@@ -2823,51 +2815,55 @@ function applyMgrFilters(){
   renderManagerWeekly(filtered, wb);
 }
 
-// Grouped horizontal cards for Planned Leave, Unplanned Leave, Rest Day
+// Grouped horizontal cards for Planned Leave and Unplanned Leave only (no Rest Day)
 function renderLeaveCards(entries){
   var container=document.getElementById('mgr-leave-cards');
   container.innerHTML='';
   if(!entries||!entries.length) return;
 
-  var groups={ pl:[], ul:[], rest:[] };
+  var groups={ pl:[], ul:[] };
   var seen={};
   entries.forEach(function(e){
     if(!e.user) return;
     var lt=String(e.leaveType||'none');
-    var isRest=!!(e.isRestDay);
     var type=null;
-    if(isRest) type='rest';
-    else if(lt==='pl-full'||lt==='pl-half') type='pl';
+    if(lt==='pl-full'||lt==='pl-half') type='pl';
     else if(lt==='ul-full'||lt==='ul-half') type='ul';
     if(!type) return;
     var key=e.user+':'+type;
-    if(seen[key]) return;
-    seen[key]=true;
-    var suffix=(lt==='pl-half'||lt==='ul-half')?' ½':'';
-    groups[type].push({user:e.user, suffix:suffix});
+    if(seen[key]){
+      // Add additional dates for same user same type
+      seen[key].dates.push(e.date);
+      return;
+    }
+    var obj={user:e.user, suffix:(lt==='pl-half'||lt==='ul-half')?' ½':'', dates:[e.date]};
+    seen[key]=obj;
+    groups[type].push(obj);
   });
 
   var defs=[
-    {key:'pl',   icon:'🏖️', label:'Planned Leave',
+    {key:'pl', icon:'🏖️', label:'Planned Leave',
      bg:'rgba(14,165,233,.12)', border:'rgba(14,165,233,.35)', headColor:'#38BDF8',
      pillBg:'rgba(14,165,233,.18)', pillBorder:'rgba(14,165,233,.45)', pillColor:'#38BDF8'},
-    {key:'ul',   icon:'😈', label:'Unplanned Leave',
-     bg:'rgba(245,124,0,.12)',  border:'rgba(245,124,0,.35)',  headColor:'#F57C00',
+    {key:'ul', icon:'😈', label:'Unplanned Leave',
+     bg:'rgba(245,124,0,.12)', border:'rgba(245,124,0,.35)', headColor:'#F57C00',
      pillBg:'rgba(245,124,0,.18)', pillBorder:'rgba(245,124,0,.45)', pillColor:'#F57C00'},
-    {key:'rest', icon:'😴', label:'Rest Day',
-     bg:'rgba(99,110,123,.12)', border:'rgba(99,110,123,.28)', headColor:'var(--text2)',
-     pillBg:'rgba(99,110,123,.18)', pillBorder:'rgba(99,110,123,.35)', pillColor:'var(--text2)'},
   ];
 
-  var anyShown=false;
   defs.forEach(function(def){
     var users=groups[def.key];
     if(!users.length) return;
-    anyShown=true;
     var pills=users.map(function(u){
-      return '<span style="display:inline-flex;align-items:center;gap:3px;background:'+def.pillBg+
-        ';border:1px solid '+def.pillBorder+';border-radius:12px;padding:3px 9px;font-size:11px;font-weight:700;color:'+def.pillColor+';white-space:nowrap">'+
-        escHtml(u.user)+(u.suffix?'<span style="font-size:9px;font-weight:400;opacity:.7">'+escHtml(u.suffix)+'</span>':'')+
+      var dateStr=u.dates.map(function(d){
+        // Format date nicely e.g. "Jun 21"
+        var p=d.split('-'); if(p.length!==3) return d;
+        var months=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+        return months[parseInt(p[1])-1]+' '+parseInt(p[2]);
+      }).join(', ');
+      return '<span style="display:inline-flex;align-items:center;gap:4px;background:'+def.pillBg+
+        ';border:1px solid '+def.pillBorder+';border-radius:12px;padding:3px 10px;white-space:nowrap">'+
+        '<span style="font-size:11px;font-weight:700;color:'+def.pillColor+'">'+escHtml(u.user)+u.suffix+'</span>'+
+        '<span style="font-size:10px;color:'+def.pillColor+';opacity:.7">· '+escHtml(dateStr)+'</span>'+
         '</span>';
     }).join('');
     container.innerHTML+=
