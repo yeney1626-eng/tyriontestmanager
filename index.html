@@ -2817,29 +2817,39 @@ function renderLeaveCards(entries){
   var container=document.getElementById('mgr-leave-cards');
   container.innerHTML='';
 
-  // Bucket users by type (dedup per user per type)
+  // Normalise each entry into a canonical type, handling BOTH data shapes:
+  // Shape A (getWBEntries):  { leaveType:'pl-full'|'ul-full'|'none', isRestDay:bool }
+  // Shape B (getWeeklySummary userWBEntries): { isRest:bool, isPlFull:bool, isUlFull:bool, status:string }
   var groups={ pl:[], ul:[], rest:[] };
   var seen={};
   entries.forEach(function(e){
     var lt=e.leaveType||'none';
-    var isRest=!!e.isRestDay;
+    var isRest=!!(e.isRestDay||e.isRest);
+    var isPlF=!!(e.isPlFull||(lt==='pl-full'));
+    var isUlF=!!(e.isUlFull||(lt==='ul-full'));
+    // Half-day: check leaveType string or status text
+    var status=String(e.status||'');
+    var isPlH=lt==='pl-half'||/pl.*half|planned leave.*half/i.test(status);
+    var isUlH=lt==='ul-half'||/ul.*half|unplanned leave.*half/i.test(status);
+
     var type=null;
     if(isRest) type='rest';
-    else if(lt==='pl-full'||lt==='pl-half') type='pl';
-    else if(lt==='ul-full'||lt==='ul-half') type='ul';
+    else if(isPlF||isPlH) type='pl';
+    else if(isUlF||isUlH) type='ul';
     if(!type) return;
+
     var key=e.user+':'+type;
     if(seen[key]) return;
     seen[key]=true;
-    var suffix=(lt==='pl-half'||lt==='ul-half')?' half':'';
+    var suffix=(isPlH||isUlH)?' ½':'';
     groups[type].push({ user:e.user, suffix:suffix });
   });
 
   var defs=[
-    { key:'pl',   icon:'🏖️', label:'Paid Leave',
+    { key:'pl',   icon:'🏖️', label:'Planned Leave',
       bg:'rgba(14,165,233,.12)',  border:'rgba(14,165,233,.35)',
       headColor:'#38BDF8',        pillBorder:'rgba(14,165,233,.45)', pillColor:'#38BDF8', pillBg:'rgba(14,165,233,.15)' },
-    { key:'ul',   icon:'😈', label:'Unpaid Leave',
+    { key:'ul',   icon:'😈', label:'Unplanned Leave',
       bg:'rgba(245,124,0,.12)',   border:'rgba(245,124,0,.35)',
       headColor:'#F57C00',        pillBorder:'rgba(245,124,0,.45)', pillColor:'#F57C00', pillBg:'rgba(245,124,0,.15)' },
     { key:'rest', icon:'😴', label:'Rest Day',
@@ -2852,7 +2862,7 @@ function renderLeaveCards(entries){
     if(!users.length) return;
     var pills=users.map(function(u){
       return '<span style="display:inline-flex;align-items:center;gap:3px;background:'+def.pillBg+';border:1px solid '+def.pillBorder+';border-radius:12px;padding:2px 8px;font-size:11px;font-weight:700;color:'+def.pillColor+';white-space:nowrap">'+
-        escHtml(u.user)+(u.suffix?'<span style="font-size:9px;font-weight:400;opacity:.7"> '+escHtml(u.suffix)+'</span>':'')+
+        escHtml(u.user)+(u.suffix?'<span style="font-size:9px;font-weight:400;opacity:.7">'+escHtml(u.suffix)+'</span>':'')+
       '</span>';
     }).join('');
     container.innerHTML+=
@@ -2897,7 +2907,7 @@ function renderManagerWeekly(rows, currentWB){
   html+='<table style="width:100%;border-collapse:collapse;font-size:13px">';
   html+='<thead><tr style="background:var(--bg-el)">';
   ['','User','Week Beginning','WB JC','WB AHT (s)','AHT Target (s)','If Met'].forEach(function(h){
-    html+='<th style="padding:8px 12px;text-align:left;font-size:10px;font-weight:700;color:var(--text2);white-space:nowrap;border-bottom:2px solid var(--border)">'+escHtml(h)+'</th>';
+    html+='<th style="padding:8px 12px;text-align:center;font-size:10px;font-weight:700;color:var(--text2);white-space:nowrap;border-bottom:2px solid var(--border)">'+escHtml(h)+'</th>';
   });
   html+='</tr></thead><tbody>';
 
@@ -2914,12 +2924,12 @@ function renderManagerWeekly(rows, currentWB){
     // Summary row
     html+='<tr id="'+rowId+'" data-rid="'+rowId+'" style="background:'+bg+';cursor:'+(hasDetail?'pointer':'default')+'" '+(hasDetail?'onclick="toggleMgrDetail(this.dataset.rid)"':'')+' title="'+(hasDetail?'Tap to expand':'')+'">';
     html+='<td style="padding:8px 10px;text-align:center;font-size:11px;color:var(--text2);user-select:none">'+escHtml(hasDetail?'▶':'')+'</td>';
-    html+='<td style="padding:8px 12px;font-weight:800;color:var(--accent);white-space:nowrap">'+escHtml(r.user)+'</td>';
-    html+='<td style="padding:8px 12px;color:var(--text2);font-size:11px;white-space:nowrap">'+escHtml(r.wb)+'</td>';
-    html+='<td style="padding:8px 12px;color:var(--text);text-align:right;font-weight:700;font-family:monospace">'+escHtml(r.wbJC)+'</td>';
-    html+='<td style="padding:8px 12px;text-align:right;font-weight:800;font-family:monospace;color:'+ahtColor+'">'+escHtml(r.wbAHT)+'</td>';
-    html+='<td style="padding:8px 12px;text-align:right;color:var(--text2);font-family:monospace">'+escHtml(r.ahtTarget)+'</td>';
-    html+='<td style="padding:8px 12px;font-weight:700;color:'+metColor+'">'+escHtml(r.ifMet)+'</td>';
+    html+='<td style="padding:8px 12px;font-weight:800;color:var(--accent);white-space:nowrap;text-align:center">'+escHtml(r.user)+'</td>';
+    html+='<td style="padding:8px 12px;color:var(--text2);font-size:11px;white-space:nowrap;text-align:center">'+escHtml(r.wb)+'</td>';
+    html+='<td style="padding:8px 12px;color:var(--text);text-align:center;font-weight:700;font-family:monospace">'+escHtml(r.wbJC)+'</td>';
+    html+='<td style="padding:8px 12px;text-align:center;font-weight:800;font-family:monospace;color:'+ahtColor+'">'+escHtml(r.wbAHT)+'</td>';
+    html+='<td style="padding:8px 12px;text-align:center;color:var(--text2);font-family:monospace">'+escHtml(r.ahtTarget)+'</td>';
+    html+='<td style="padding:8px 12px;font-weight:700;color:'+metColor+';text-align:center">'+escHtml(r.ifMet)+'</td>';
     html+='</tr>';
 
     // Detail section
