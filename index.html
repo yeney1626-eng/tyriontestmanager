@@ -1035,6 +1035,7 @@ function entryToBackupRow(entry){
     target: cellText(5+ivCount),
     allowance: cellText(6+ivCount),
     status: cellText(7+ivCount).replace(/[^\x00-\x7F]/g,'').trim(),
+    leaveType: entry.leaveType || 'none',
     offlines: offlineParts.join(' | '),
     locked: !!entry.locked
   };
@@ -2812,65 +2813,60 @@ function applyMgrFilters(){
   renderManagerWeekly(filtered, wb);
 }
 
-// Grouped horizontal cards for PL, UL, and Rest Day — one card per type, user pills inside
+// Grouped horizontal cards for Planned Leave, Unplanned Leave, Rest Day
 function renderLeaveCards(entries){
   var container=document.getElementById('mgr-leave-cards');
   container.innerHTML='';
+  if(!entries||!entries.length) return;
 
-  // Normalise each entry into a canonical type, handling BOTH data shapes:
-  // Shape A (getWBEntries):  { leaveType:'pl-full'|'ul-full'|'none', isRestDay:bool }
-  // Shape B (getWeeklySummary userWBEntries): { isRest:bool, isPlFull:bool, isUlFull:bool, status:string }
   var groups={ pl:[], ul:[], rest:[] };
   var seen={};
   entries.forEach(function(e){
-    var lt=e.leaveType||'none';
-    var isRest=!!(e.isRestDay||e.isRest);
-    var isPlF=!!(e.isPlFull||(lt==='pl-full'));
-    var isUlF=!!(e.isUlFull||(lt==='ul-full'));
-    // Half-day: check leaveType string or status text
-    var status=String(e.status||'');
-    var isPlH=lt==='pl-half'||/pl.*half|planned leave.*half/i.test(status);
-    var isUlH=lt==='ul-half'||/ul.*half|unplanned leave.*half/i.test(status);
-
+    if(!e.user) return;
+    var lt=String(e.leaveType||'none');
+    var isRest=!!(e.isRestDay);
     var type=null;
     if(isRest) type='rest';
-    else if(isPlF||isPlH) type='pl';
-    else if(isUlF||isUlH) type='ul';
+    else if(lt==='pl-full'||lt==='pl-half') type='pl';
+    else if(lt==='ul-full'||lt==='ul-half') type='ul';
     if(!type) return;
-
     var key=e.user+':'+type;
     if(seen[key]) return;
     seen[key]=true;
-    var suffix=(isPlH||isUlH)?' ½':'';
-    groups[type].push({ user:e.user, suffix:suffix });
+    var suffix=(lt==='pl-half'||lt==='ul-half')?' ½':'';
+    groups[type].push({user:e.user, suffix:suffix});
   });
 
   var defs=[
-    { key:'pl',   icon:'🏖️', label:'Planned Leave',
-      bg:'rgba(14,165,233,.12)',  border:'rgba(14,165,233,.35)',
-      headColor:'#38BDF8',        pillBorder:'rgba(14,165,233,.45)', pillColor:'#38BDF8', pillBg:'rgba(14,165,233,.15)' },
-    { key:'ul',   icon:'😈', label:'Unplanned Leave',
-      bg:'rgba(245,124,0,.12)',   border:'rgba(245,124,0,.35)',
-      headColor:'#F57C00',        pillBorder:'rgba(245,124,0,.45)', pillColor:'#F57C00', pillBg:'rgba(245,124,0,.15)' },
-    { key:'rest', icon:'😴', label:'Rest Day',
-      bg:'rgba(99,110,123,.12)',  border:'rgba(99,110,123,.28)',
-      headColor:'var(--text2)',   pillBorder:'rgba(99,110,123,.35)', pillColor:'var(--text2)', pillBg:'rgba(99,110,123,.15)' },
+    {key:'pl',   icon:'🏖️', label:'Planned Leave',
+     bg:'rgba(14,165,233,.12)', border:'rgba(14,165,233,.35)', headColor:'#38BDF8',
+     pillBg:'rgba(14,165,233,.18)', pillBorder:'rgba(14,165,233,.45)', pillColor:'#38BDF8'},
+    {key:'ul',   icon:'😈', label:'Unplanned Leave',
+     bg:'rgba(245,124,0,.12)',  border:'rgba(245,124,0,.35)',  headColor:'#F57C00',
+     pillBg:'rgba(245,124,0,.18)', pillBorder:'rgba(245,124,0,.45)', pillColor:'#F57C00'},
+    {key:'rest', icon:'😴', label:'Rest Day',
+     bg:'rgba(99,110,123,.12)', border:'rgba(99,110,123,.28)', headColor:'var(--text2)',
+     pillBg:'rgba(99,110,123,.18)', pillBorder:'rgba(99,110,123,.35)', pillColor:'var(--text2)'},
   ];
 
+  var anyShown=false;
   defs.forEach(function(def){
     var users=groups[def.key];
     if(!users.length) return;
+    anyShown=true;
     var pills=users.map(function(u){
-      return '<span style="display:inline-flex;align-items:center;gap:3px;background:'+def.pillBg+';border:1px solid '+def.pillBorder+';border-radius:12px;padding:2px 8px;font-size:11px;font-weight:700;color:'+def.pillColor+';white-space:nowrap">'+
+      return '<span style="display:inline-flex;align-items:center;gap:3px;background:'+def.pillBg+
+        ';border:1px solid '+def.pillBorder+';border-radius:12px;padding:3px 9px;font-size:11px;font-weight:700;color:'+def.pillColor+';white-space:nowrap">'+
         escHtml(u.user)+(u.suffix?'<span style="font-size:9px;font-weight:400;opacity:.7">'+escHtml(u.suffix)+'</span>':'')+
-      '</span>';
+        '</span>';
     }).join('');
     container.innerHTML+=
-      '<div style="display:inline-flex;flex-direction:column;gap:5px;background:'+def.bg+';border:1px solid '+def.border+';border-radius:10px;padding:8px 12px;min-width:0">'+
-        '<div style="display:flex;align-items:center;gap:4px">'+
+      '<div style="display:inline-flex;flex-direction:column;gap:6px;background:'+def.bg+
+        ';border:1px solid '+def.border+';border-radius:10px;padding:8px 12px;min-width:0">'+
+        '<div style="display:flex;align-items:center;gap:5px">'+
           '<span style="font-size:13px">'+def.icon+'</span>'+
           '<span style="font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.4px;color:'+def.headColor+'">'+def.label+'</span>'+
-          '<span style="font-size:10px;font-weight:600;color:'+def.headColor+';opacity:.6">('+users.length+')</span>'+
+          '<span style="font-size:10px;font-weight:600;color:'+def.headColor+';opacity:.65">('+users.length+')</span>'+
         '</div>'+
         '<div style="display:flex;flex-wrap:wrap;gap:4px">'+pills+'</div>'+
       '</div>';
