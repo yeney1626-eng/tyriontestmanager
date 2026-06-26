@@ -2741,6 +2741,10 @@ function loadManagerView(){
     MGR_ALL_ROWS = resp.result.rows||[];
     MGR_USER_WB_ENTRIES = resp.result.userWBEntries||{};
     MGR_LATEST_WB = resp.result.latestWB||'';
+    console.log('MGR_LATEST_WB:', MGR_LATEST_WB);
+    console.log('MGR_ALL_ROWS users:', MGR_ALL_ROWS.map(function(r){return r.user+'/'+r.wb;}));
+    console.log('MGR_USER_WB_ENTRIES keys:', Object.keys(MGR_USER_WB_ENTRIES));
+    console.log('sample entry:', JSON.stringify(Object.values(MGR_USER_WB_ENTRIES)[0]&&Object.values(MGR_USER_WB_ENTRIES)[0][0]));
     status.textContent='Last refreshed: '+new Date().toLocaleTimeString();
     if(MGR_LATEST_WB) document.getElementById('mgr-wb-label').textContent='Current WB: '+MGR_LATEST_WB;
     // Populate user filter dropdown
