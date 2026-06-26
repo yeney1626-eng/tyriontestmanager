@@ -2073,24 +2073,6 @@ function shiftDate(days){
   inp._userEdited=true;
   autoSetWB(inp.value); updateJCPreview(); checkDateSummary(inp.value);
 }
-// After saving a leave or locking a day: if the saved entry belongs to a
-// different WB than today's WB (i.e. the user was logging a future-WB leave),
-// snap back to today instead of advancing past the WB boundary.
-// Otherwise do a normal +1 day shift so sequential same-WB logging still works.
-function smartAdvanceDate(savedDate){
-  var currentWBLabel = currentWB(); // the WB label for today
-  var savedWBLabel = (WBS.slice().reverse().find(function(w){ return w.date <= savedDate; })||{}).label || '';
-  if(savedWBLabel && savedWBLabel !== currentWBLabel){
-    // Revert to today's WB — find next un-locked workday from today
-    var td = today();
-    var inp = document.getElementById('inp-date'); if(!inp) return;
-    inp.value = td;
-    inp._userEdited = true;
-    autoSetWB(td); updateJCPreview(); checkDateSummary(td);
-  } else {
-    shiftDate(1);
-  }
-}
 function shiftMonth(months){
   var inp=document.getElementById('inp-date'); if(!inp) return;
   var cur=inp.value||today();
@@ -2353,12 +2335,11 @@ function addEntry(skipBackup){
     S.entries.push(e);
     persist();
   }
-  // PL full / UL full: auto-lock and advance to next day immediately.
-  // If the leave date is in a future WB, revert to today's WB instead.
+  // PL full / UL full: auto-lock and advance to next day immediately
   if(isFullLeave){
     var lockIdx=S.entries.findIndex(function(e){return e.date===date;});
     if(lockIdx>=0){ S.entries[lockIdx].locked=true; S.entries[lockIdx].lockedAt=Date.now(); persist(); backupEntryToSheet(S.entries[lockIdx]); backupWeeklySummaryToSheet(S.entries[lockIdx].date); }
-    smartAdvanceDate(date);
+    shiftDate(1);
     return;
   }
   // Sync every save (not just lock) so the sheet reflects updates in near
@@ -2395,7 +2376,7 @@ function saveAndLock(){
     else{
       var idx2=S.entries.findIndex(function(e){return e.date===date;});
       if(idx2>=0){ S.entries[idx2].locked=true; S.entries[idx2].lockedAt=Date.now(); persist(); backupEntryToSheet(S.entries[idx2]); backupWeeklySummaryToSheet(S.entries[idx2].date); }
-      smartAdvanceDate(date);
+      shiftDate(1);
     }
     return;
   }
@@ -2407,7 +2388,7 @@ function saveAndLock(){
   persist();
   backupEntryToSheet(S.entries[idx]);
   backupWeeklySummaryToSheet(S.entries[idx].date);
-  smartAdvanceDate(date);
+  shiftDate(1);
 }
 
 function unlockEntry(dateVal){
@@ -2766,11 +2747,18 @@ function loadManagerView(){
     MGR_LATEST_WB       = resp.result.latestWB||'';
     MGR_WB_DATE_TO_LABEL = resp.result.wbDateToLabel||{};
 
-    // Build sorted unique WB list from all rows
+    // Build sorted unique WB list from all Weekly Summary rows.
+    // IMPORTANT: also include latestEntryWB from the Entries sheet so the
+    // current WB (e.g. WB 22) is always present — even when no one has
+    // locked yet and it therefore has no row in the Weekly Summary yet.
+    // Without this, MGR_WB_IDX would land on the previous WB, making new
+    // entries appear to belong to the "next" week.
     var wbSet={};
     MGR_ALL_ROWS.forEach(function(r){ if(r.wb) wbSet[r.wb]=true; });
+    var latestEntryWB = resp.result.latestEntryWB||'';
+    if(latestEntryWB) wbSet[latestEntryWB]=true;
     MGR_ALL_WBS = Object.keys(wbSet).sort();           // oldest→newest alphabetically
-    MGR_WB_IDX  = MGR_ALL_WBS.length - 1;             // start on latest
+    MGR_WB_IDX  = MGR_ALL_WBS.length - 1;             // start on current (latest) WB
 
     // Populate user filter
     var userSel=document.getElementById('mgr-filter-user');
