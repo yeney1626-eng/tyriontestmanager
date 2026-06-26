@@ -2781,15 +2781,22 @@ function updateMgrWBNav(){
   document.getElementById('mgr-next-btn').disabled = MGR_WB_IDX >= MGR_ALL_WBS.length-1;
 
   // Fetch leave/rest cards for this specific WB from Entries sheet
-  document.getElementById('mgr-leave-cards').innerHTML='';
+  document.getElementById('mgr-leave-cards').innerHTML='<span style="font-size:11px;color:var(--text2)">Loading cards…</span>';
   fetch(SHEET_BACKUP_URL,{
     method:'POST', headers:{'Content-Type':'text/plain;charset=utf-8'},
     body:JSON.stringify({action:'getWBEntries', wb: wb})
   }).then(function(r){ return r.json(); }).then(function(resp){
+    var dbg=document.getElementById('mgr-cards-debug');
+    if(!dbg){ dbg=document.createElement('pre'); dbg.id='mgr-cards-debug'; dbg.style.cssText='font-size:9px;color:var(--text2);background:var(--bg-el);border:1px solid var(--border);border-radius:6px;padding:8px;margin-top:6px;max-height:160px;overflow:auto;white-space:pre-wrap;word-break:break-all'; document.getElementById('mgr-leave-cards').insertAdjacentElement('afterend',dbg); }
+    dbg.textContent='WB sent: '+wb+'\nresp.status: '+resp.status+'\nentries count: '+((resp.result&&resp.result.entries)||[]).length+'\nFirst 3 entries:\n'+JSON.stringify(((resp.result&&resp.result.entries)||[]).slice(0,3),null,2);
     if(resp.status==='ok') renderLeaveCards(resp.result.entries||[]);
-    // Store this WB's entries for drill-down if not already cached
     if(resp.status==='ok') MGR_USER_WB_ALL[wb] = resp.result.entries||[];
-  }).catch(function(){});
+  }).catch(function(err){
+    var dbg=document.getElementById('mgr-cards-debug');
+    if(!dbg){ dbg=document.createElement('pre'); dbg.id='mgr-cards-debug'; dbg.style.cssText='font-size:9px;color:var(--red);background:var(--bg-el);border:1px solid var(--border);border-radius:6px;padding:8px;margin-top:6px'; document.getElementById('mgr-leave-cards').insertAdjacentElement('afterend',dbg); }
+    dbg.textContent='FETCH ERROR: '+err.message;
+    document.getElementById('mgr-leave-cards').innerHTML='';
+  });
 
   applyMgrFilters();
 }
