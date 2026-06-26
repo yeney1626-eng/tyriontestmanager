@@ -2982,10 +2982,10 @@ function renderManagerWeekly(rows, currentWB){
   if(isStub){
     html+='<div style="font-size:11px;color:var(--text2);padding:4px 0 8px;font-style:italic">⚠️ Weekly Summary not yet updated — showing raw entry data (no locks yet this week).</div>';
   }
-  html+='<table style="width:100%;border-collapse:collapse;font-size:13px">';
+  html+='<table style="width:100%;border-collapse:collapse;font-size:15px">';
   html+='<thead><tr style="background:var(--bg-el)">';
   ['','User','Week Beginning','WB JC','WB AHT (s)','AHT Target (s)','If Met'].forEach(function(h){
-    html+='<th style="padding:8px 12px;text-align:center;font-size:10px;font-weight:700;color:var(--text2);white-space:nowrap;border-bottom:2px solid var(--border)">'+escHtml(h)+'</th>';
+    html+='<th style="padding:11px 14px;text-align:center;font-size:11px;font-weight:700;color:var(--text2);white-space:nowrap;border-bottom:2px solid var(--border)">'+escHtml(h)+'</th>';
   });
   html+='</tr></thead><tbody>';
 
@@ -3000,14 +3000,14 @@ function renderManagerWeekly(rows, currentWB){
     var hasDetail=userEntries.length>0;
 
     // Summary row
-    html+='<tr id="'+rowId+'" data-rid="'+rowId+'" style="background:'+bg+';cursor:'+(hasDetail?'pointer':'default')+'" '+(hasDetail?'onclick="toggleMgrDetail(this.dataset.rid)"':'')+' title="'+(hasDetail?'Tap to expand':'')+'">';
-    html+='<td style="padding:8px 10px;text-align:center;font-size:11px;color:var(--text2);user-select:none">'+escHtml(hasDetail?'▶':'')+'</td>';
-    html+='<td style="padding:8px 12px;font-weight:800;color:var(--accent);white-space:nowrap;text-align:center">'+escHtml(r.user)+'</td>';
-    html+='<td style="padding:8px 12px;color:var(--text2);font-size:11px;white-space:nowrap;text-align:center">'+escHtml(r.wb)+'</td>';
-    html+='<td style="padding:8px 12px;color:var(--text);text-align:center;font-weight:700;font-family:monospace">'+escHtml(r.wbJC)+'</td>';
-    html+='<td style="padding:8px 12px;text-align:center;font-weight:800;font-family:monospace;color:'+ahtColor+'">'+escHtml(r.wbAHT)+'</td>';
-    html+='<td style="padding:8px 12px;text-align:center;color:var(--text2);font-family:monospace">'+escHtml(r.ahtTarget)+'</td>';
-    html+='<td style="padding:8px 12px;font-weight:700;color:'+metColor+';text-align:center">'+escHtml(r.ifMet)+'</td>';
+    html+='<tr id="'+rowId+'" data-rid="'+rowId+'" data-expanded="0" style="background:'+bg+';cursor:'+(hasDetail?'pointer':'default')+';transition:background .15s" '+(hasDetail?'onclick="toggleMgrDetail(this.dataset.rid)"':'')+' title="'+(hasDetail?'Tap to expand':'')+'">';
+    html+='<td style="padding:13px 12px;text-align:center;font-size:14px;color:var(--accent);user-select:none;font-weight:900">'+escHtml(hasDetail?'▶':'')+'</td>';
+    html+='<td style="padding:13px 14px;font-size:16px;font-weight:800;color:var(--accent);white-space:nowrap;text-align:center">'+escHtml(r.user)+'</td>';
+    html+='<td style="padding:13px 14px;color:var(--text2);font-size:12px;white-space:nowrap;text-align:center">'+escHtml(r.wb)+'</td>';
+    html+='<td style="padding:13px 14px;color:var(--text);text-align:center;font-size:17px;font-weight:800;font-family:monospace">'+escHtml(r.wbJC)+'</td>';
+    html+='<td style="padding:13px 14px;text-align:center;font-size:17px;font-weight:800;font-family:monospace;color:'+ahtColor+'">'+escHtml(r.wbAHT)+'</td>';
+    html+='<td style="padding:13px 14px;text-align:center;font-size:14px;color:var(--text2);font-family:monospace">'+escHtml(r.ahtTarget)+'</td>';
+    html+='<td style="padding:13px 14px;font-size:16px;font-weight:800;color:'+metColor+';text-align:center">'+escHtml(r.ifMet)+'</td>';
     html+='</tr>';
 
     // Detail section
@@ -3109,6 +3109,17 @@ function toggleMgrDetail(rowId){
   detailRow.style.display=isOpen?'none':'';
   var arrow=summaryRow.querySelector('td:first-child');
   if(arrow) arrow.textContent=isOpen?'▶':'▼';
+  // Highlight the summary row while its detail panel is open
+  if(isOpen){
+    summaryRow.style.background='';  // restore original striped bg (set inline via data-bg)
+    summaryRow.style.boxShadow='none';
+    summaryRow.style.outline='none';
+    summaryRow.dataset.expanded='0';
+  } else {
+    summaryRow.style.background='rgba(99,102,241,.18)';
+    summaryRow.style.boxShadow='inset 3px 0 0 var(--accent)';
+    summaryRow.dataset.expanded='1';
+  }
   updateMgrExpandCollapseBtn();
 }
 
@@ -3140,7 +3151,18 @@ function toggleAllMgrRows(){
     el.style.display=shouldExpand?'':'none';
     var rid=el.id.replace('-detail','');
     var summaryRow=document.getElementById(rid);
-    if(summaryRow){ var arrow=summaryRow.querySelector('td:first-child'); if(arrow) arrow.textContent=shouldExpand?'▼':'▶'; }
+    if(summaryRow){
+      var arrow=summaryRow.querySelector('td:first-child'); if(arrow) arrow.textContent=shouldExpand?'▼':'▶';
+      if(shouldExpand){
+        summaryRow.style.background='rgba(99,102,241,.18)';
+        summaryRow.style.boxShadow='inset 3px 0 0 var(--accent)';
+        summaryRow.dataset.expanded='1';
+      } else {
+        summaryRow.style.background='';
+        summaryRow.style.boxShadow='none';
+        summaryRow.dataset.expanded='0';
+      }
+    }
   });
   // When collapsing, also close any open week-detail sub-sections
   if(!shouldExpand){
