@@ -2748,16 +2748,20 @@ function loadManagerView(){
     MGR_WB_DATE_TO_LABEL = resp.result.wbDateToLabel||{};
 
     // Build sorted unique WB list from all Weekly Summary rows.
-    // IMPORTANT: also include latestEntryWB from the Entries sheet so the
-    // current WB (e.g. WB 22) is always present — even when no one has
-    // locked yet and it therefore has no row in the Weekly Summary yet.
-    // Without this, MGR_WB_IDX would land on the previous WB, making new
-    // entries appear to belong to the "next" week.
+    // MGR_ALL_WBS uses date-format WBs (e.g. "2026-06-21") matching r.wb in MGR_ALL_ROWS.
+    // latestEntryWB comes back as a label-format string ("WB 06.21.2026") from the
+    // Entries sheet — convert it to date-format so it sorts and matches correctly,
+    // ensuring the current WB is always in the list even before anyone has locked.
     var wbSet={};
     MGR_ALL_ROWS.forEach(function(r){ if(r.wb) wbSet[r.wb]=true; });
     var latestEntryWB = resp.result.latestEntryWB||'';
-    if(latestEntryWB) wbSet[latestEntryWB]=true;
-    MGR_ALL_WBS = Object.keys(wbSet).sort();           // oldest→newest alphabetically
+    if(latestEntryWB){
+      // "WB MM.DD.YYYY" → "YYYY-MM-DD"
+      var m = latestEntryWB.match(/(\d{2})\.(\d{2})\.(\d{4})/);
+      var latestEntryWBDate = m ? (m[3]+'-'+m[1]+'-'+m[2]) : '';
+      if(latestEntryWBDate) wbSet[latestEntryWBDate]=true;
+    }
+    MGR_ALL_WBS = Object.keys(wbSet).sort();           // oldest→newest chronologically
     MGR_WB_IDX  = MGR_ALL_WBS.length - 1;             // start on current (latest) WB
 
     // Populate user filter
@@ -2897,11 +2901,16 @@ function renderManagerWeekly(rows, currentWB){
     if(!userEntryMap[e.user]) userEntryMap[e.user]=[];
     userEntryMap[e.user].push(e);
   });
-  // Fall back to MGR_USER_WB_ENTRIES for current WB
-  if(!Object.keys(userEntryMap).length && currentWB===MGR_LATEST_WB){
-    Object.keys(MGR_USER_WB_ENTRIES).forEach(function(u){
-      userEntryMap[u]=MGR_USER_WB_ENTRIES[u];
-    });
+  // Fall back to MGR_USER_WB_ENTRIES (keyed by label-format WB from the weekly call)
+  // for the latest WB — compare date-format currentWB against both MGR_LATEST_WB
+  // and the date derived from latestEntryWB so format differences don't break lookup.
+  if(!Object.keys(userEntryMap).length){
+    var isCurrentLatest = (currentWB === MGR_ALL_WBS[MGR_ALL_WBS.length-1]);
+    if(isCurrentLatest){
+      Object.keys(MGR_USER_WB_ENTRIES).forEach(function(u){
+        userEntryMap[u]=MGR_USER_WB_ENTRIES[u];
+      });
+    }
   }
   // Sort each user's entries by date desc
   Object.keys(userEntryMap).forEach(function(u){
