@@ -573,7 +573,7 @@ tr.locked-row td{opacity:.75}
       <div class="filter-row">
         <label>Year:</label>
         <select id="filter-year" onchange="renderEntries()"></select>
-        <button class="btn btn-sm" onclick="exportXLSX()">⬇ Export Excel</button>
+        <button class="btn btn-sm" onclick="exportXLSX()" style="background:#111;color:#fff;border-color:#333">⬇ Export Excel</button>
         <button class="btn btn-sm btn-primary" onclick="openImportModal()">⬆ Import Excel</button>
         <button class="btn btn-sm" id="btn-backup-all" onclick="backupAllEntries()">☁️ Backup All Entries</button>
         <button class="btn btn-sm" style="background:linear-gradient(135deg,#7C3AED,#A855F7);color:#fff;border:none" onclick="openRestoreModal()">♻️ Restore from Sheet</button>
@@ -667,19 +667,20 @@ tr.locked-row td{opacity:.75}
     <!-- ── MANAGER TAB ── -->
     <div class="section" id="tab-manager">
       <div class="page-title">👔 TeamRoanne – Manager's View</div>
-      <div class="page-sub">Weekly Running Summary · current WB by default · tap a row to expand</div>
 
-      <!-- Toolbar -->
-      <div style="display:flex;gap:8px;margin-bottom:10px;flex-wrap:wrap;align-items:center">
-        <button class="btn btn-sm btn-primary" onclick="loadManagerView()">🔄 Refresh</button>
-        <label style="font-size:11px;color:var(--text2);display:flex;align-items:center;gap:4px">
-          <input type="checkbox" id="mgr-show-all-wb" onchange="applyMgrFilters()"> Show all weeks
-        </label>
-        <span id="mgr-wb-label" style="font-size:11px;color:var(--text2)"></span>
+      <!-- WB Navigator -->
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px;flex-wrap:wrap">
+        <button class="btn btn-sm" id="mgr-prev-btn" onclick="mgrNavWB(-1)" style="font-size:13px;padding:4px 12px">‹ Prev</button>
+        <div style="flex:1;text-align:center">
+          <div style="font-size:13px;font-weight:800;color:var(--text)" id="mgr-wb-display">—</div>
+          <div style="font-size:10px;color:var(--text2)" id="mgr-wb-index-label"></div>
+        </div>
+        <button class="btn btn-sm" id="mgr-next-btn" onclick="mgrNavWB(1)" style="font-size:13px;padding:4px 12px">Next ›</button>
+        <button class="btn btn-sm btn-primary" onclick="loadManagerView()" style="margin-left:4px">🔄</button>
       </div>
 
       <!-- Column filters -->
-      <div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap;align-items:center">
+      <div style="display:flex;gap:8px;margin-bottom:10px;flex-wrap:wrap;align-items:center">
         <div style="display:flex;align-items:center;gap:4px">
           <label style="font-size:10px;color:var(--text2);font-weight:700;text-transform:uppercase">User</label>
           <select id="mgr-filter-user" onchange="applyMgrFilters()" style="font-size:11px;padding:4px 7px;border-radius:6px;border:1px solid var(--border);background:var(--bg-el);color:var(--text)">
@@ -697,10 +698,10 @@ tr.locked-row td{opacity:.75}
         <span id="mgr-filter-count" style="font-size:11px;color:var(--text2);margin-left:auto"></span>
       </div>
 
-      <div id="mgr-status" style="font-size:12px;color:var(--text2);margin-bottom:10px"></div>
+      <div id="mgr-status" style="font-size:12px;color:var(--text2);margin-bottom:8px"></div>
 
-      <!-- PL / UL leave cards -->
-      <div id="mgr-leave-cards" style="display:flex;flex-direction:column;gap:8px;margin-bottom:12px"></div>
+      <!-- Compact leave/rest cards — horizontal pill row -->
+      <div id="mgr-leave-cards" style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px"></div>
 
       <!-- Weekly summary table -->
       <div id="mgr-weekly-table"></div>
@@ -2721,56 +2722,84 @@ function logoutManager(){
 }
 
 // ── manager state ──────────────────────────────────────────────
-var MGR_ALL_ROWS = [];
+var MGR_ALL_ROWS      = [];
 var MGR_USER_WB_ENTRIES = {};
-var MGR_LATEST_WB = '';
+var MGR_LATEST_WB     = '';
+var MGR_ALL_WBS       = [];   // sorted list of unique WB values (oldest→newest)
+var MGR_WB_IDX        = 0;    // current index into MGR_ALL_WBS
+var MGR_USER_WB_ALL   = {};   // entries keyed by WB label for all weeks
 
 function loadManagerView(){
   if(!MGR_UNLOCKED){ showTab('settings'); return; }
-  var status=document.getElementById('mgr-status');
-  status.textContent='Fetching Weekly Summary from Sheet…';
+  document.getElementById('mgr-status').textContent='Fetching data from Sheet…';
   document.getElementById('mgr-weekly-table').innerHTML='';
   document.getElementById('mgr-leave-cards').innerHTML='';
-  document.getElementById('mgr-wb-label').textContent='';
 
   fetch(SHEET_BACKUP_URL,{
     method:'POST', headers:{'Content-Type':'text/plain;charset=utf-8'},
     body:JSON.stringify({action:'getWeeklySummary'})
   }).then(function(r){ return r.json(); }).then(function(resp){
     if(resp.status!=='ok') throw new Error(resp.message||'Failed.');
-    MGR_ALL_ROWS = resp.result.rows||[];
+    MGR_ALL_ROWS        = resp.result.rows||[];
     MGR_USER_WB_ENTRIES = resp.result.userWBEntries||{};
-    MGR_LATEST_WB = resp.result.latestWB||'';
-    console.log('MGR_LATEST_WB:', MGR_LATEST_WB);
-    console.log('MGR_ALL_ROWS users:', MGR_ALL_ROWS.map(function(r){return r.user+'/'+r.wb;}));
-    console.log('MGR_USER_WB_ENTRIES keys:', Object.keys(MGR_USER_WB_ENTRIES));
-    console.log('sample entry:', JSON.stringify(Object.values(MGR_USER_WB_ENTRIES)[0]&&Object.values(MGR_USER_WB_ENTRIES)[0][0]));
-    status.textContent='Last refreshed: '+new Date().toLocaleTimeString();
-    if(MGR_LATEST_WB) document.getElementById('mgr-wb-label').textContent='Current WB: '+MGR_LATEST_WB;
-    // Populate user filter dropdown
+    MGR_LATEST_WB       = resp.result.latestWB||'';
+
+    // Build sorted unique WB list from all rows
+    var wbSet={};
+    MGR_ALL_ROWS.forEach(function(r){ if(r.wb) wbSet[r.wb]=true; });
+    MGR_ALL_WBS = Object.keys(wbSet).sort();           // oldest→newest alphabetically
+    MGR_WB_IDX  = MGR_ALL_WBS.length - 1;             // start on latest
+
+    // Populate user filter
     var userSel=document.getElementById('mgr-filter-user');
-    var prevUser=userSel.value;
+    var prev=userSel.value;
     userSel.innerHTML='<option value="">All</option>';
     var users=[]; MGR_ALL_ROWS.forEach(function(r){ if(r.user&&users.indexOf(r.user)<0) users.push(r.user); });
     users.sort().forEach(function(u){ userSel.innerHTML+='<option value="'+escHtml(u)+'">'+escHtml(u)+'</option>'; });
-    if(prevUser) userSel.value=prevUser;
-    applyMgrFilters();
-    // Fetch leave cards
-    fetch(SHEET_BACKUP_URL,{
-      method:'POST', headers:{'Content-Type':'text/plain;charset=utf-8'},
-      body:JSON.stringify({action:'getWBEntries'})
-    }).then(function(r2){ return r2.json(); }).then(function(resp2){
-      if(resp2.status==='ok') renderLeaveCards(resp2.result.entries||[], resp2.result.wb||'');
-    }).catch(function(){});
-  }).catch(function(err){ status.textContent='Error: '+err.message; });
+    if(prev) userSel.value=prev;
+
+    document.getElementById('mgr-status').textContent='Last refreshed: '+new Date().toLocaleTimeString();
+    updateMgrWBNav();
+  }).catch(function(err){ document.getElementById('mgr-status').textContent='Error: '+err.message; });
+}
+
+// Navigate ±1 WB; direction = -1 (prev) or +1 (next)
+function mgrNavWB(dir){
+  var newIdx = MGR_WB_IDX + dir;
+  if(newIdx < 0 || newIdx >= MGR_ALL_WBS.length) return;
+  MGR_WB_IDX = newIdx;
+  updateMgrWBNav();
+}
+
+function updateMgrWBNav(){
+  var wb = MGR_ALL_WBS[MGR_WB_IDX] || MGR_LATEST_WB;
+  document.getElementById('mgr-wb-display').textContent = wb || '—';
+  document.getElementById('mgr-wb-index-label').textContent =
+    'Week '+(MGR_WB_IDX+1)+' of '+MGR_ALL_WBS.length;
+  document.getElementById('mgr-prev-btn').disabled = MGR_WB_IDX <= 0;
+  document.getElementById('mgr-next-btn').disabled = MGR_WB_IDX >= MGR_ALL_WBS.length-1;
+
+  // Fetch leave/rest cards for this specific WB from Entries sheet
+  document.getElementById('mgr-leave-cards').innerHTML='';
+  fetch(SHEET_BACKUP_URL,{
+    method:'POST', headers:{'Content-Type':'text/plain;charset=utf-8'},
+    body:JSON.stringify({action:'getWBEntries', wb: wb})
+  }).then(function(r){ return r.json(); }).then(function(resp){
+    if(resp.status==='ok') renderLeaveCards(resp.result.entries||[]);
+    // Store this WB's entries for drill-down if not already cached
+    if(resp.status==='ok') MGR_USER_WB_ALL[wb] = resp.result.entries||[];
+  }).catch(function(){});
+
+  applyMgrFilters();
 }
 
 function applyMgrFilters(){
-  var showAll = document.getElementById('mgr-show-all-wb').checked;
+  var wb         = MGR_ALL_WBS[MGR_WB_IDX]||MGR_LATEST_WB;
   var filterUser = document.getElementById('mgr-filter-user').value;
-  var filterMet = document.getElementById('mgr-filter-met').value.toLowerCase();
+  var filterMet  = document.getElementById('mgr-filter-met').value.toLowerCase();
+
   var filtered = MGR_ALL_ROWS.filter(function(r){
-    if(!showAll && r.wb !== MGR_LATEST_WB) return false;
+    if(r.wb !== wb) return false;
     if(filterUser && r.user !== filterUser) return false;
     if(filterMet){
       var met=/^yes$/i.test(r.ifMet)?'yes':/^no$/i.test(r.ifMet)?'no':'';
@@ -2778,42 +2807,64 @@ function applyMgrFilters(){
     }
     return true;
   });
+
   document.getElementById('mgr-filter-count').textContent=filtered.length+' row'+(filtered.length===1?'':'s');
-  renderManagerWeekly(filtered);
+  renderManagerWeekly(filtered, wb);
 }
 
-function renderLeaveCards(entries, wb){
+// Compact horizontal pill cards for PL, UL and Rest Day
+function renderLeaveCards(entries){
   var container=document.getElementById('mgr-leave-cards');
-  if(wb) document.getElementById('mgr-wb-label').textContent='Current WB: '+wb;
   container.innerHTML='';
-  var leaveByUser={};
+  var seen={};  // user:type → already shown
   entries.forEach(function(e){
-    var lt=e.leaveType||'none'; if(lt==='none') return;
-    if(!leaveByUser[e.user]) leaveByUser[e.user]=[];
-    leaveByUser[e.user].push({date:e.date, type:lt});
-  });
-  Object.keys(leaveByUser).sort().forEach(function(user){
-    leaveByUser[user].forEach(function(l){
-      var isUL=l.type==='ul-full';
-      var bg=isUL?'rgba(245,124,0,.1)':'rgba(14,165,233,.1)';
-      var border=isUL?'rgba(245,124,0,.3)':'rgba(14,165,233,.3)';
-      var color=isUL?'#F57C00':'#38BDF8';
-      container.innerHTML+=
-        '<div style="background:'+bg+';border:1px solid '+border+';border-radius:10px;padding:10px 14px;display:flex;align-items:center;gap:10px">'+
-          '<span style="font-size:20px">'+(isUL?'😈':'🏖️')+'</span>'+
-          '<div><span style="font-size:13px;font-weight:800;color:'+color+'">'+escHtml(user)+'</span>'+
-          '<span style="font-size:12px;font-weight:700;color:'+color+';margin-left:8px">'+(isUL?'UL Full':'PL Full')+'</span>'+
-          '<div style="font-size:11px;color:var(--text2);margin-top:2px">'+escHtml(l.date)+'</div></div></div>';
-    });
+    var lt=e.leaveType||'none';
+    var isRest=e.isRestDay;
+    if(lt==='none' && !isRest) return;
+    var key=e.user+':'+(lt==='pl-full'?'pl':lt==='ul-full'?'ul':'rest');
+    if(seen[key]) return;
+    seen[key]=true;
+    var isUL=lt==='ul-full', isPL=lt==='pl-full';
+    var bg=isUL?'rgba(245,124,0,.15)':isPL?'rgba(14,165,233,.15)':'rgba(99,110,123,.15)';
+    var border=isUL?'rgba(245,124,0,.4)':isPL?'rgba(14,165,233,.4)':'rgba(99,110,123,.3)';
+    var color=isUL?'#F57C00':isPL?'#38BDF8':'var(--text2)';
+    var icon=isUL?'😈':isPL?'🏖️':'😴';
+    var label=isUL?'UL Full':isPL?'PL Full':'Rest';
+    container.innerHTML+=
+      '<div style="display:inline-flex;align-items:center;gap:5px;background:'+bg+';border:1px solid '+border+';border-radius:20px;padding:4px 10px;white-space:nowrap">'+
+        '<span style="font-size:13px">'+icon+'</span>'+
+        '<span style="font-size:11px;font-weight:700;color:'+color+'">'+escHtml(e.user)+'</span>'+
+        '<span style="font-size:10px;color:'+color+'">'+label+'</span>'+
+      '</div>';
   });
 }
 
-function renderManagerWeekly(rows){
+function renderManagerWeekly(rows, currentWB){
   var container=document.getElementById('mgr-weekly-table');
   if(!rows||!rows.length){
-    container.innerHTML='<div style="color:var(--text2);font-size:13px;padding:16px 0">No rows match the current filters.</div>';
+    container.innerHTML='<div style="color:var(--text2);font-size:13px;padding:16px 0">No entries for this week yet.</div>';
     return;
   }
+
+  // Build per-user entry lookup for this WB
+  // Priority: MGR_USER_WB_ALL (fetched from entries) then MGR_USER_WB_ENTRIES (from weekly call)
+  var wbEntries = MGR_USER_WB_ALL[currentWB] || [];
+  var userEntryMap = {};
+  wbEntries.forEach(function(e){
+    if(!userEntryMap[e.user]) userEntryMap[e.user]=[];
+    userEntryMap[e.user].push(e);
+  });
+  // Fall back to MGR_USER_WB_ENTRIES for current WB
+  if(!Object.keys(userEntryMap).length && currentWB===MGR_LATEST_WB){
+    Object.keys(MGR_USER_WB_ENTRIES).forEach(function(u){
+      userEntryMap[u]=MGR_USER_WB_ENTRIES[u];
+    });
+  }
+  // Sort each user's entries by date desc
+  Object.keys(userEntryMap).forEach(function(u){
+    userEntryMap[u].sort(function(a,b){ return b.date.localeCompare(a.date); });
+  });
+
   var html='<div style="overflow-x:auto;-webkit-overflow-scrolling:touch">';
   html+='<table style="width:100%;border-collapse:collapse;font-size:13px">';
   html+='<thead><tr style="background:var(--bg-el)">';
@@ -2829,9 +2880,11 @@ function renderManagerWeekly(rows){
     var ahtColor=isMet?'var(--accent2)':isNotMet?'var(--red)':'var(--text)';
     var bg=i%2===0?'var(--bg-card)':'var(--bg-el)';
     var rowId='mgr-row-'+i;
-    var hasDetail=!!(MGR_USER_WB_ENTRIES[r.user]&&MGR_USER_WB_ENTRIES[r.user].length);
+    var userEntries=userEntryMap[r.user]||[];
+    var hasDetail=userEntries.length>0;
 
-    html+='<tr id="'+rowId+'" data-rid="'+rowId+'" style="background:'+bg+';cursor:'+( hasDetail?'pointer':'default')+'" '+( hasDetail?'onclick="toggleMgrDetail(this.dataset.rid)"':"")+' title="'+( hasDetail?'Click to expand daily entries':"")+'">';
+    // Summary row
+    html+='<tr id="'+rowId+'" data-rid="'+rowId+'" style="background:'+bg+';cursor:'+(hasDetail?'pointer':'default')+'" '+(hasDetail?'onclick="toggleMgrDetail(this.dataset.rid)"':'')+' title="'+(hasDetail?'Tap to expand':'')+'">';
     html+='<td style="padding:8px 10px;text-align:center;font-size:11px;color:var(--text2);user-select:none">'+escHtml(hasDetail?'▶':'')+'</td>';
     html+='<td style="padding:8px 12px;font-weight:800;color:var(--accent);white-space:nowrap">'+escHtml(r.user)+'</td>';
     html+='<td style="padding:8px 12px;color:var(--text2);font-size:11px;white-space:nowrap">'+escHtml(r.wb)+'</td>';
@@ -2842,77 +2895,93 @@ function renderManagerWeekly(rows){
     html+='<td style="padding:8px 12px;color:var(--text2);text-align:center">'+escHtml(r.days)+'</td>';
     html+='</tr>';
 
-    // Detail section: latest entry shown inline, full week collapsible
+    // Detail section
     html+='<tr id="'+rowId+'-detail" style="display:none"><td colspan="8" style="padding:0">';
     if(hasDetail){
-      var entries=MGR_USER_WB_ENTRIES[r.user];
-      // Latest entry = first in array (sorted desc)
-      var latest=entries[0];
-      var latestIsSpecial=latest.isRest||latest.isPlFull||latest.isUlFull;
-      var latestStatus=latest.isPlFull?'🏖️ PL Full':latest.isUlFull?'😈 UL Full':latest.isRest?'😴 Rest Day':latest.status||'—';
+      // Latest entry
+      var latest=userEntries[0];
+      var latestSpecial=latest.isRestDay||latest.isPlFull||latest.isUlFull;
       var latestMet=/^met$/i.test(latest.status||'');
-      var latestColor=latestMet?'var(--accent2)':latestIsSpecial?'var(--text2)':'var(--red)';
+      var latestColor=latestMet?'var(--accent2)':latestSpecial?'var(--text2)':'var(--red)';
+      var latestLabel=latest.isPlFull?'🏖️ PL Full':latest.isUlFull?'😈 UL Full':latest.isRestDay?'😴 Rest Day':latest.status||'—';
 
-      // ── Latest entry row ─────────────────────────────────────
       html+='<div style="background:rgba(99,102,241,.07);border-left:3px solid var(--accent);padding:10px 14px">';
-      html+='<div style="font-size:10px;font-weight:700;color:var(--text2);text-transform:uppercase;letter-spacing:.4px;margin-bottom:8px">📅 Latest Entry — '+escHtml(latest.date)+'</div>';
-      html+='<div style="overflow-x:auto;-webkit-overflow-scrolling:touch">';
-      html+='<table style="width:100%;border-collapse:collapse;font-size:11px;min-width:520px"><thead><tr>';
-      ['User','WB','Date','1st Brk JC','Lunch JC','2nd Brk JC','EOS JC','Total JC','Offlines'].forEach(function(h){
-        html+='<th style="padding:4px 8px;text-align:left;font-size:9px;font-weight:700;color:var(--text2);text-transform:uppercase;white-space:nowrap;border-bottom:1px solid var(--border)">'+escHtml(h)+'</th>';
-      });
-      html+='</tr></thead><tbody><tr style="background:transparent">';
-      html+='<td style="padding:5px 8px;font-weight:800;color:var(--accent)">'+escHtml(latest.user||r.user)+'</td>';
-      html+='<td style="padding:5px 8px;color:var(--text2);font-size:10px;white-space:nowrap">'+escHtml(latest.wb||r.wb||'')+'</td>';
-      html+='<td style="padding:5px 8px;color:var(--text);white-space:nowrap">'+escHtml(latest.date)+'</td>';
-      if(latestIsSpecial){
-        html+='<td colspan="5" style="padding:5px 8px;color:var(--text2);font-style:italic">'+escHtml(latestStatus)+'</td>';
-        html+='<td style="padding:5px 8px;color:var(--text2)">—</td>';
-      } else {
-        latest.jcVals.forEach(function(jc){ html+='<td style="padding:5px 8px;text-align:right;color:var(--text)">'+jc+'</td>'; });
-        html+='<td style="padding:5px 8px;text-align:right;font-weight:700;color:var(--text)">'+latest.totalJC+'</td>';
-        html+='<td style="padding:5px 8px;color:var(--text2);font-size:10px">'+escHtml(latest.offlines||'—')+'</td>';
-      }
-      html+='</tr></tbody></table></div>';
+      html+='<div style="font-size:10px;font-weight:700;color:var(--text2);text-transform:uppercase;letter-spacing:.4px;margin-bottom:8px">📅 Latest — '+escHtml(latest.date)+'</div>';
+      html+=buildEntryTableRow(latest, r, true);
 
-      // ── Collapsible full week ─────────────────────────────────
-      if(entries.length>1){
+      // Collapsible full week
+      if(userEntries.length>1){
         var weekId=rowId+'-week';
         html+='<div style="margin-top:8px">';
-        html+='<button onclick="toggleWeekDetail(\''+weekId+'\')" id="'+weekId+'-btn" style="background:none;border:none;color:var(--accent);font-size:11px;font-weight:700;cursor:pointer;padding:4px 0">▶ Show full week ('+entries.length+' entries)</button>';
-        html+='<div id="'+weekId+'" style="display:none;margin-top:8px;overflow-x:auto;-webkit-overflow-scrolling:touch">';
-        html+='<table style="width:100%;border-collapse:collapse;font-size:11px;min-width:520px"><thead><tr>';
-        ['User','WB','Date','1st Brk JC','Lunch JC','2nd Brk JC','EOS JC','Total JC','Offlines'].forEach(function(h){
-          html+='<th style="padding:4px 8px;text-align:left;font-size:9px;font-weight:700;color:var(--text2);text-transform:uppercase;white-space:nowrap;border-bottom:1px solid var(--border)">'+escHtml(h)+'</th>';
-        });
-        html+='</tr></thead><tbody>';
-        entries.forEach(function(e,ei){
-          var ebg=ei%2===0?'transparent':'rgba(255,255,255,.03)';
-          var eSpecial=e.isRest||e.isPlFull||e.isUlFull;
-          var eStatus=e.isPlFull?'🏖️ PL Full':e.isUlFull?'😈 UL Full':e.isRest?'😴 Rest Day':e.status||'—';
-          html+='<tr style="background:'+ebg+'">';
-          html+='<td style="padding:4px 8px;font-weight:700;color:var(--accent)">'+escHtml(e.user||r.user)+'</td>';
-          html+='<td style="padding:4px 8px;color:var(--text2);font-size:10px;white-space:nowrap">'+escHtml(e.wb||r.wb||'')+'</td>';
-          html+='<td style="padding:4px 8px;color:var(--text);white-space:nowrap">'+escHtml(e.date)+'</td>';
-          if(eSpecial){
-            html+='<td colspan="5" style="padding:4px 8px;color:var(--text2);font-style:italic">'+escHtml(eStatus)+'</td>';
-            html+='<td style="padding:4px 8px;color:var(--text2)">—</td>';
-          } else {
-            e.jcVals.forEach(function(jc){ html+='<td style="padding:4px 8px;text-align:right;color:var(--text)">'+jc+'</td>'; });
-            html+='<td style="padding:4px 8px;text-align:right;font-weight:700;color:var(--text)">'+e.totalJC+'</td>';
-            html+='<td style="padding:4px 8px;color:var(--text2);font-size:10px">'+escHtml(e.offlines||'—')+'</td>';
-          }
-          html+='</tr>';
-        });
-        html+='</tbody></table>';
+        html+='<button data-wid="'+weekId+'" onclick="toggleWeekDetail(this.dataset.wid)" id="'+weekId+'-btn" style="background:none;border:none;color:var(--accent);font-size:11px;font-weight:700;cursor:pointer;padding:4px 0">▶ Show all entries this week ('+userEntries.length+')</button>';
+        html+='<div id="'+weekId+'" style="display:none;margin-top:8px;overflow-x:auto">';
+        html+=buildEntryTable(userEntries, r);
         html+='</div></div>';
       }
       html+='</div>';
     }
     html+='</td></tr>';
   });
+
   html+='</tbody></table></div>';
   container.innerHTML=html;
+}
+
+// Builds the entry table header + rows
+function buildEntryTable(entries, summaryRow){
+  var html='<table style="width:100%;border-collapse:collapse;font-size:11px;min-width:560px"><thead><tr>';
+  ['User','WB','Date','1st Brk JC','Lunch JC','2nd Brk JC','EOS JC','Total JC','Offlines'].forEach(function(h){
+    html+='<th style="padding:4px 8px;text-align:left;font-size:9px;font-weight:700;color:var(--text2);text-transform:uppercase;white-space:nowrap;border-bottom:1px solid var(--border)">'+escHtml(h)+'</th>';
+  });
+  html+='</tr></thead><tbody>';
+  entries.forEach(function(e,ei){
+    html+=buildEntryTableRow(e, summaryRow, false, ei);
+  });
+  html+='</tbody></table>';
+  return html;
+}
+
+// Builds a single entry table row (or wraps in table for single-row preview)
+function buildEntryTableRow(e, r, wrapInTable, idx){
+  var bg=(idx!==undefined&&idx%2!==0)?'rgba(255,255,255,.03)':'transparent';
+  var eSpecial=e.isRestDay||e.isPlFull||e.isUlFull;
+  var eStatus=e.isPlFull?'🏖️ PL Full':e.isUlFull?'😈 UL Full':e.isRestDay?'😴 Rest Day':e.status||'—';
+  var eMet=/^met$/i.test(e.status||'');
+  var eColor=eMet?'var(--accent2)':eSpecial?'var(--text2)':'var(--red)';
+
+  // jcVals: from e.jcVals (getWBEntries format) or e.iv (MGR_USER_WB_ENTRIES format)
+  var jcVals=e.jcVals;
+  if(!jcVals&&e.iv){
+    var IVS_D=['1st Break','Lunch','2nd Break','EOS'];
+    jcVals=IVS_D.map(function(iv){ return (e.iv[iv]&&e.iv[iv].jc)||0; });
+  }
+  jcVals=jcVals||[0,0,0,0];
+  var totalJC=e.totalJC||0;
+  var offlines=e.offlines||'';
+
+  var row='<tr style="background:'+bg+'">';
+  row+='<td style="padding:5px 8px;font-weight:700;color:var(--accent)">'+escHtml(e.user||r.user||'')+'</td>';
+  row+='<td style="padding:5px 8px;color:var(--text2);font-size:10px;white-space:nowrap">'+escHtml(e.wb||r.wb||'')+'</td>';
+  row+='<td style="padding:5px 8px;color:var(--text);white-space:nowrap">'+escHtml(e.date)+'</td>';
+  if(eSpecial){
+    row+='<td colspan="5" style="padding:5px 8px;color:var(--text2);font-style:italic">'+escHtml(eStatus)+'</td>';
+    row+='<td style="padding:5px 8px;color:var(--text2)">—</td>';
+  } else {
+    jcVals.forEach(function(jc){ row+='<td style="padding:5px 8px;text-align:right;color:var(--text)">'+jc+'</td>'; });
+    row+='<td style="padding:5px 8px;text-align:right;font-weight:700;color:var(--text)">'+totalJC+'</td>';
+    row+='<td style="padding:5px 8px;color:var(--text2);font-size:10px;max-width:140px;word-break:break-word">'+escHtml(offlines||'—')+'</td>';
+  }
+  row+='</tr>';
+
+  if(wrapInTable){
+    var hdr='<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:11px;min-width:560px"><thead><tr>';
+    ['User','WB','Date','1st Brk JC','Lunch JC','2nd Brk JC','EOS JC','Total JC','Offlines'].forEach(function(h){
+      hdr+='<th style="padding:4px 8px;text-align:left;font-size:9px;font-weight:700;color:var(--text2);text-transform:uppercase;white-space:nowrap;border-bottom:1px solid var(--border)">'+escHtml(h)+'</th>';
+    });
+    hdr+='</tr></thead><tbody>';
+    return hdr+row+'</tbody></table></div>';
+  }
+  return row;
 }
 
 function toggleMgrDetail(rowId){
@@ -2931,9 +3000,9 @@ function toggleWeekDetail(weekId){
   if(!el||!btn) return;
   var isOpen=el.style.display!=='none';
   el.style.display=isOpen?'none':'';
-  var count=btn.textContent.match(/\d+ entr/);
-  var countStr=count?count[0]+'ies)':'entries)';
-  btn.textContent=isOpen?'▶ Show full week ('+countStr:'▼ Hide full week ('+countStr;
+  var m=btn.textContent.match(/\((\d+)\)/);
+  var n=m?m[1]:'';
+  btn.textContent=isOpen?'▶ Show all entries this week'+(n?' ('+n+')':''):'▼ Hide entries this week'+(n?' ('+n+')':'');
 }
 
 function showManagerSummary(){}
