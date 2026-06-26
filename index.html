@@ -677,7 +677,7 @@ tr.locked-row td{opacity:.75}
         </div>
         <button class="btn btn-sm" id="mgr-next-btn" onclick="mgrNavWB(1)" style="font-size:13px;padding:4px 12px">Next ›</button>
         <button class="btn btn-sm btn-primary" onclick="loadManagerView()" style="margin-left:4px">🔄</button>
-        <button class="btn btn-sm" id="mgr-collapse-btn" onclick="collapseAllMgrRows()" style="margin-left:2px;display:none" title="Collapse all expanded rows">⬆ Collapse All</button>
+        <button class="btn btn-sm" id="mgr-collapse-btn" onclick="toggleAllMgrRows()" style="margin-left:2px;display:none" title="Expand or collapse all rows">⬇ Expand All</button>
       </div>
 
       <!-- Column filters -->
@@ -2737,7 +2737,7 @@ function loadManagerView(){
   document.getElementById('mgr-status').textContent='Fetching data from Sheet…';
   document.getElementById('mgr-weekly-table').innerHTML='';
   document.getElementById('mgr-leave-cards').innerHTML='';
-  var _colBtn=document.getElementById('mgr-collapse-btn'); if(_colBtn) _colBtn.style.display='none';
+  var _colBtn=document.getElementById('mgr-collapse-btn'); if(_colBtn){ _colBtn.style.display='none'; _colBtn.textContent='⬇ Expand All'; }
   // Show a loading placeholder in the WB display so it doesn't flash "—"
   if(!document.getElementById('mgr-wb-display').textContent || document.getElementById('mgr-wb-display').textContent==='—'){
     document.getElementById('mgr-wb-display').textContent='Loading…';
@@ -2808,7 +2808,7 @@ function updateMgrWBNav(){
   // Fetch leave cards — translate date-format WB to label-format for Entries sheet
   var entryWBLabel = MGR_WB_DATE_TO_LABEL[wb] || wb;
   document.getElementById('mgr-leave-cards').innerHTML='';
-  var _cb=document.getElementById('mgr-collapse-btn'); if(_cb) _cb.style.display='none';
+  var _cb=document.getElementById('mgr-collapse-btn'); if(_cb){ _cb.style.display='none'; _cb.textContent='⬇ Expand All'; }
   fetch(SHEET_BACKUP_URL,{
     method:'POST', headers:{'Content-Type':'text/plain;charset=utf-8'},
     body:JSON.stringify({action:'getWBEntries', wb: entryWBLabel})
@@ -3040,6 +3040,8 @@ function renderManagerWeekly(rows, currentWB){
 
   html+='</tbody></table></div>';
   container.innerHTML=html;
+  // Show "Expand All" button now that the table has expandable rows
+  updateMgrExpandCollapseBtn();
 }
 
 // Builds the entry table header + rows
@@ -3107,34 +3109,51 @@ function toggleMgrDetail(rowId){
   detailRow.style.display=isOpen?'none':'';
   var arrow=summaryRow.querySelector('td:first-child');
   if(arrow) arrow.textContent=isOpen?'▶':'▼';
-  // Show "Collapse All" button whenever at least one row is open
-  var anyOpen=document.querySelectorAll('[id^="mgr-row-"][id$="-detail"]');
-  var hasOpen=false;
-  for(var i=0;i<anyOpen.length;i++){ if(anyOpen[i].style.display!=='none'){ hasOpen=true; break; } }
-  var btn=document.getElementById('mgr-collapse-btn');
-  if(btn) btn.style.display=hasOpen?'':'none';
+  updateMgrExpandCollapseBtn();
 }
 
-function collapseAllMgrRows(){
-  // Collapse all open detail rows
+// Update the Expand All / Collapse All button label based on current state
+function updateMgrExpandCollapseBtn(){
   var detailRows=document.querySelectorAll('[id^="mgr-row-"][id$="-detail"]');
+  if(!detailRows.length){ var b=document.getElementById('mgr-collapse-btn'); if(b) b.style.display='none'; return; }
+  var openCount=0;
+  detailRows.forEach(function(el){ if(el.style.display!=='none') openCount++; });
+  var btn=document.getElementById('mgr-collapse-btn');
+  if(!btn) return;
+  btn.style.display='';
+  if(openCount===0){
+    btn.textContent='⬇ Expand All';
+    btn.title='Expand all rows';
+  } else {
+    btn.textContent='⬆ Collapse All';
+    btn.title='Collapse all rows';
+  }
+}
+
+function toggleAllMgrRows(){
+  var detailRows=document.querySelectorAll('[id^="mgr-row-"][id$="-detail"]');
+  if(!detailRows.length) return;
+  var openCount=0;
+  detailRows.forEach(function(el){ if(el.style.display!=='none') openCount++; });
+  var shouldExpand=openCount===0; // if all closed → expand all; otherwise → collapse all
   detailRows.forEach(function(el){
-    el.style.display='none';
+    el.style.display=shouldExpand?'':'none';
     var rid=el.id.replace('-detail','');
     var summaryRow=document.getElementById(rid);
-    if(summaryRow){ var arrow=summaryRow.querySelector('td:first-child'); if(arrow) arrow.textContent='▶'; }
+    if(summaryRow){ var arrow=summaryRow.querySelector('td:first-child'); if(arrow) arrow.textContent=shouldExpand?'▼':'▶'; }
   });
-  // Also collapse any open week-detail sub-sections
-  var weekDetails=document.querySelectorAll('[id$="-week"]');
-  weekDetails.forEach(function(el){
-    if(el.style.display!=='none'){
-      el.style.display='none';
-      var btn=document.getElementById(el.id+'-btn');
-      if(btn){ var m=btn.textContent.match(/\((\d+)\)/); var n=m?m[1]:''; btn.textContent='▶ Show all entries this week'+(n?' ('+n+')':''); }
-    }
-  });
-  var colBtn=document.getElementById('mgr-collapse-btn');
-  if(colBtn) colBtn.style.display='none';
+  // When collapsing, also close any open week-detail sub-sections
+  if(!shouldExpand){
+    var weekDetails=document.querySelectorAll('[id$="-week"]');
+    weekDetails.forEach(function(el){
+      if(el.style.display!=='none'){
+        el.style.display='none';
+        var wBtn=document.getElementById(el.id+'-btn');
+        if(wBtn){ var m=wBtn.textContent.match(/\((\d+)\)/); var n=m?m[1]:''; wBtn.textContent='▶ Show all entries this week'+(n?' ('+n+')':''); }
+      }
+    });
+  }
+  updateMgrExpandCollapseBtn();
 }
 
 function toggleWeekDetail(weekId){
