@@ -2812,29 +2812,57 @@ function applyMgrFilters(){
   renderManagerWeekly(filtered, wb);
 }
 
-// Compact horizontal pill cards for PL, UL and Rest Day
+// Grouped horizontal cards for PL, UL, and Rest Day — one card per type, user pills inside
 function renderLeaveCards(entries){
   var container=document.getElementById('mgr-leave-cards');
   container.innerHTML='';
-  var seen={};  // user:type → already shown
+
+  // Bucket users by type (dedup per user per type)
+  var groups={ pl:[], ul:[], rest:[] };
+  var seen={};
   entries.forEach(function(e){
     var lt=e.leaveType||'none';
-    var isRest=e.isRestDay;
-    if(lt==='none' && !isRest) return;
-    var key=e.user+':'+(lt==='pl-full'?'pl':lt==='ul-full'?'ul':'rest');
+    var isRest=!!e.isRestDay;
+    var type=null;
+    if(isRest) type='rest';
+    else if(lt==='pl-full'||lt==='pl-half') type='pl';
+    else if(lt==='ul-full'||lt==='ul-half') type='ul';
+    if(!type) return;
+    var key=e.user+':'+type;
     if(seen[key]) return;
     seen[key]=true;
-    var isUL=lt==='ul-full', isPL=lt==='pl-full';
-    var bg=isUL?'rgba(245,124,0,.15)':isPL?'rgba(14,165,233,.15)':'rgba(99,110,123,.15)';
-    var border=isUL?'rgba(245,124,0,.4)':isPL?'rgba(14,165,233,.4)':'rgba(99,110,123,.3)';
-    var color=isUL?'#F57C00':isPL?'#38BDF8':'var(--text2)';
-    var icon=isUL?'😈':isPL?'🏖️':'😴';
-    var label=isUL?'UL Full':isPL?'PL Full':'Rest';
+    var suffix=(lt==='pl-half'||lt==='ul-half')?' half':'';
+    groups[type].push({ user:e.user, suffix:suffix });
+  });
+
+  var defs=[
+    { key:'pl',   icon:'🏖️', label:'Paid Leave',
+      bg:'rgba(14,165,233,.12)',  border:'rgba(14,165,233,.35)',
+      headColor:'#38BDF8',        pillBorder:'rgba(14,165,233,.45)', pillColor:'#38BDF8', pillBg:'rgba(14,165,233,.15)' },
+    { key:'ul',   icon:'😈', label:'Unpaid Leave',
+      bg:'rgba(245,124,0,.12)',   border:'rgba(245,124,0,.35)',
+      headColor:'#F57C00',        pillBorder:'rgba(245,124,0,.45)', pillColor:'#F57C00', pillBg:'rgba(245,124,0,.15)' },
+    { key:'rest', icon:'😴', label:'Rest Day',
+      bg:'rgba(99,110,123,.12)',  border:'rgba(99,110,123,.28)',
+      headColor:'var(--text2)',   pillBorder:'rgba(99,110,123,.35)', pillColor:'var(--text2)', pillBg:'rgba(99,110,123,.15)' },
+  ];
+
+  defs.forEach(function(def){
+    var users=groups[def.key];
+    if(!users.length) return;
+    var pills=users.map(function(u){
+      return '<span style="display:inline-flex;align-items:center;gap:3px;background:'+def.pillBg+';border:1px solid '+def.pillBorder+';border-radius:12px;padding:2px 8px;font-size:11px;font-weight:700;color:'+def.pillColor+';white-space:nowrap">'+
+        escHtml(u.user)+(u.suffix?'<span style="font-size:9px;font-weight:400;opacity:.7"> '+escHtml(u.suffix)+'</span>':'')+
+      '</span>';
+    }).join('');
     container.innerHTML+=
-      '<div style="display:inline-flex;align-items:center;gap:5px;background:'+bg+';border:1px solid '+border+';border-radius:20px;padding:4px 10px;white-space:nowrap">'+
-        '<span style="font-size:13px">'+icon+'</span>'+
-        '<span style="font-size:11px;font-weight:700;color:'+color+'">'+escHtml(e.user)+'</span>'+
-        '<span style="font-size:10px;color:'+color+'">'+label+'</span>'+
+      '<div style="display:inline-flex;flex-direction:column;gap:5px;background:'+def.bg+';border:1px solid '+def.border+';border-radius:10px;padding:8px 12px;min-width:0">'+
+        '<div style="display:flex;align-items:center;gap:4px">'+
+          '<span style="font-size:13px">'+def.icon+'</span>'+
+          '<span style="font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.4px;color:'+def.headColor+'">'+def.label+'</span>'+
+          '<span style="font-size:10px;font-weight:600;color:'+def.headColor+';opacity:.6">('+users.length+')</span>'+
+        '</div>'+
+        '<div style="display:flex;flex-wrap:wrap;gap:4px">'+pills+'</div>'+
       '</div>';
   });
 }
@@ -2868,7 +2896,7 @@ function renderManagerWeekly(rows, currentWB){
   var html='<div style="overflow-x:auto;-webkit-overflow-scrolling:touch">';
   html+='<table style="width:100%;border-collapse:collapse;font-size:13px">';
   html+='<thead><tr style="background:var(--bg-el)">';
-  ['','User','Week Beginning','WB JC','WB AHT (s)','AHT Target (s)','If Met','Days'].forEach(function(h){
+  ['','User','Week Beginning','WB JC','WB AHT (s)','AHT Target (s)','If Met'].forEach(function(h){
     html+='<th style="padding:8px 12px;text-align:left;font-size:10px;font-weight:700;color:var(--text2);white-space:nowrap;border-bottom:2px solid var(--border)">'+escHtml(h)+'</th>';
   });
   html+='</tr></thead><tbody>';
@@ -2892,11 +2920,10 @@ function renderManagerWeekly(rows, currentWB){
     html+='<td style="padding:8px 12px;text-align:right;font-weight:800;font-family:monospace;color:'+ahtColor+'">'+escHtml(r.wbAHT)+'</td>';
     html+='<td style="padding:8px 12px;text-align:right;color:var(--text2);font-family:monospace">'+escHtml(r.ahtTarget)+'</td>';
     html+='<td style="padding:8px 12px;font-weight:700;color:'+metColor+'">'+escHtml(r.ifMet)+'</td>';
-    html+='<td style="padding:8px 12px;color:var(--text2);text-align:center">'+escHtml(r.days)+'</td>';
     html+='</tr>';
 
     // Detail section
-    html+='<tr id="'+rowId+'-detail" style="display:none"><td colspan="8" style="padding:0">';
+    html+='<tr id="'+rowId+'-detail" style="display:none"><td colspan="7" style="padding:0">';
     if(hasDetail){
       // Latest entry
       var latest=userEntries[0];
