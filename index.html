@@ -2838,35 +2838,72 @@ function renderManagerWeekly(rows){
     html+='<td style="padding:8px 12px;color:var(--text2);text-align:center">'+escHtml(r.days)+'</td>';
     html+='</tr>';
 
-    // Hidden detail rows
+    // Detail section: latest entry shown inline, full week collapsible
     html+='<tr id="'+rowId+'-detail" style="display:none"><td colspan="8" style="padding:0">';
     if(hasDetail){
       var entries=MGR_USER_WB_ENTRIES[r.user];
-      html+='<div style="background:var(--bg-el);border-left:3px solid var(--accent);padding:10px 14px">';
-      html+='<table style="width:100%;border-collapse:collapse;font-size:11px"><thead><tr>';
-      ['Date','1st Brk','Lunch','2nd Brk','EOS','Total JC','Avg AHT','Status'].forEach(function(h){
+      // Latest entry = first in array (sorted desc)
+      var latest=entries[0];
+      var latestIsSpecial=latest.isRest||latest.isPlFull||latest.isUlFull;
+      var latestStatus=latest.isPlFull?'🏖️ PL Full':latest.isUlFull?'😈 UL Full':latest.isRest?'😴 Rest Day':latest.status||'—';
+      var latestMet=/^met$/i.test(latest.status||'');
+      var latestColor=latestMet?'var(--accent2)':latestIsSpecial?'var(--text2)':'var(--red)';
+
+      // ── Latest entry row ─────────────────────────────────────
+      html+='<div style="background:rgba(99,102,241,.07);border-left:3px solid var(--accent);padding:10px 14px">';
+      html+='<div style="font-size:10px;font-weight:700;color:var(--text2);text-transform:uppercase;letter-spacing:.4px;margin-bottom:8px">📅 Latest Entry — '+escHtml(latest.date)+'</div>';
+      html+='<div style="overflow-x:auto;-webkit-overflow-scrolling:touch">';
+      html+='<table style="width:100%;border-collapse:collapse;font-size:11px;min-width:520px"><thead><tr>';
+      ['User','WB','Date','1st Brk JC','Lunch JC','2nd Brk JC','EOS JC','Total JC','Offlines'].forEach(function(h){
         html+='<th style="padding:4px 8px;text-align:left;font-size:9px;font-weight:700;color:var(--text2);text-transform:uppercase;white-space:nowrap;border-bottom:1px solid var(--border)">'+escHtml(h)+'</th>';
       });
-      html+='</tr></thead><tbody>';
-      entries.forEach(function(e,ei){
-        var ebg=ei%2===0?'transparent':'rgba(255,255,255,.03)';
-        var eMet=/^met$/i.test(e.status||'');
-        var eColor=eMet?'var(--accent2)':(e.isRest||e.isPlFull||e.isUlFull)?'var(--text2)':'var(--red)';
-        var eStatus=e.isPlFull?'🏖️ PL Full':e.isUlFull?'😈 UL Full':e.isRest?'😴 Rest':e.status||'—';
-        html+='<tr style="background:'+ebg+'">';
-        html+='<td style="padding:4px 8px;color:var(--text);white-space:nowrap">'+escHtml(e.date)+'</td>';
-        if(e.isRest||e.isPlFull||e.isUlFull){
-          html+='<td colspan="5" style="padding:4px 8px;color:var(--text2);font-style:italic">'+escHtml(eStatus)+'</td>';
-          html+='<td style="padding:4px 8px;color:var(--text2)">—</td>';
-        } else {
-          e.jcVals.forEach(function(jc){ html+='<td style="padding:4px 8px;text-align:right;color:var(--text)">'+jc+'</td>'; });
-          html+='<td style="padding:4px 8px;text-align:right;font-weight:700;color:var(--text)">'+e.totalJC+'</td>';
-          html+='<td style="padding:4px 8px;text-align:right;font-weight:700;color:'+eColor+'">'+e.avgAHT+'s</td>';
-        }
-        html+='<td style="padding:4px 8px;font-weight:700;color:'+eColor+'">'+escHtml(eStatus)+'</td>';
-        html+='</tr>';
-      });
-      html+='</tbody></table></div>';
+      html+='</tr></thead><tbody><tr style="background:transparent">';
+      html+='<td style="padding:5px 8px;font-weight:800;color:var(--accent)">'+escHtml(latest.user||r.user)+'</td>';
+      html+='<td style="padding:5px 8px;color:var(--text2);font-size:10px;white-space:nowrap">'+escHtml(latest.wb||r.wb||'')+'</td>';
+      html+='<td style="padding:5px 8px;color:var(--text);white-space:nowrap">'+escHtml(latest.date)+'</td>';
+      if(latestIsSpecial){
+        html+='<td colspan="5" style="padding:5px 8px;color:var(--text2);font-style:italic">'+escHtml(latestStatus)+'</td>';
+        html+='<td style="padding:5px 8px;color:var(--text2)">—</td>';
+      } else {
+        latest.jcVals.forEach(function(jc){ html+='<td style="padding:5px 8px;text-align:right;color:var(--text)">'+jc+'</td>'; });
+        html+='<td style="padding:5px 8px;text-align:right;font-weight:700;color:var(--text)">'+latest.totalJC+'</td>';
+        html+='<td style="padding:5px 8px;color:var(--text2);font-size:10px">'+escHtml(latest.offlines||'—')+'</td>';
+      }
+      html+='</tr></tbody></table></div>';
+
+      // ── Collapsible full week ─────────────────────────────────
+      if(entries.length>1){
+        var weekId=rowId+'-week';
+        html+='<div style="margin-top:8px">';
+        html+='<button onclick="toggleWeekDetail(\''+weekId+'\')" id="'+weekId+'-btn" style="background:none;border:none;color:var(--accent);font-size:11px;font-weight:700;cursor:pointer;padding:4px 0">▶ Show full week ('+entries.length+' entries)</button>';
+        html+='<div id="'+weekId+'" style="display:none;margin-top:8px;overflow-x:auto;-webkit-overflow-scrolling:touch">';
+        html+='<table style="width:100%;border-collapse:collapse;font-size:11px;min-width:520px"><thead><tr>';
+        ['User','WB','Date','1st Brk JC','Lunch JC','2nd Brk JC','EOS JC','Total JC','Offlines'].forEach(function(h){
+          html+='<th style="padding:4px 8px;text-align:left;font-size:9px;font-weight:700;color:var(--text2);text-transform:uppercase;white-space:nowrap;border-bottom:1px solid var(--border)">'+escHtml(h)+'</th>';
+        });
+        html+='</tr></thead><tbody>';
+        entries.forEach(function(e,ei){
+          var ebg=ei%2===0?'transparent':'rgba(255,255,255,.03)';
+          var eSpecial=e.isRest||e.isPlFull||e.isUlFull;
+          var eStatus=e.isPlFull?'🏖️ PL Full':e.isUlFull?'😈 UL Full':e.isRest?'😴 Rest Day':e.status||'—';
+          html+='<tr style="background:'+ebg+'">';
+          html+='<td style="padding:4px 8px;font-weight:700;color:var(--accent)">'+escHtml(e.user||r.user)+'</td>';
+          html+='<td style="padding:4px 8px;color:var(--text2);font-size:10px;white-space:nowrap">'+escHtml(e.wb||r.wb||'')+'</td>';
+          html+='<td style="padding:4px 8px;color:var(--text);white-space:nowrap">'+escHtml(e.date)+'</td>';
+          if(eSpecial){
+            html+='<td colspan="5" style="padding:4px 8px;color:var(--text2);font-style:italic">'+escHtml(eStatus)+'</td>';
+            html+='<td style="padding:4px 8px;color:var(--text2)">—</td>';
+          } else {
+            e.jcVals.forEach(function(jc){ html+='<td style="padding:4px 8px;text-align:right;color:var(--text)">'+jc+'</td>'; });
+            html+='<td style="padding:4px 8px;text-align:right;font-weight:700;color:var(--text)">'+e.totalJC+'</td>';
+            html+='<td style="padding:4px 8px;color:var(--text2);font-size:10px">'+escHtml(e.offlines||'—')+'</td>';
+          }
+          html+='</tr>';
+        });
+        html+='</tbody></table>';
+        html+='</div></div>';
+      }
+      html+='</div>';
     }
     html+='</td></tr>';
   });
@@ -2882,6 +2919,17 @@ function toggleMgrDetail(rowId){
   detailRow.style.display=isOpen?'none':'';
   var arrow=summaryRow.querySelector('td:first-child');
   if(arrow) arrow.textContent=isOpen?'▶':'▼';
+}
+
+function toggleWeekDetail(weekId){
+  var el=document.getElementById(weekId);
+  var btn=document.getElementById(weekId+'-btn');
+  if(!el||!btn) return;
+  var isOpen=el.style.display!=='none';
+  el.style.display=isOpen?'none':'';
+  var count=btn.textContent.match(/\d+ entr/);
+  var countStr=count?count[0]+'ies)':'entries)';
+  btn.textContent=isOpen?'▶ Show full week ('+countStr:'▼ Hide full week ('+countStr;
 }
 
 function showManagerSummary(){}
